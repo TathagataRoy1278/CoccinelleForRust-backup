@@ -54,6 +54,7 @@ pub enum GenericSubst<Mvar: Clone, Value: Clone> {
     NegSubst(Mvar, Value),
 }
 
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub enum GenericWitnessTree<State, Subst, Anno> {
     Wit(State, Subst, Anno, Vec<GenericWitnessTree<State, Subst, Anno>>),
     NegWit(Box<GenericWitnessTree<State, Subst, Anno>>),

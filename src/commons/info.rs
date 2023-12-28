@@ -84,3 +84,5 @@ pub enum ParseError {
 }
 
 pub const WILDCARD: &str = "__BLOCK_WILD_CARD__";
+#[derive(Clone)]
+pub struct Unknown;

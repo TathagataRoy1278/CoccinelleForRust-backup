@@ -8,6 +8,7 @@
 !/talks/*.tex
 
 .vscode/
+.idea/
 
 # Added by cargo
 #
