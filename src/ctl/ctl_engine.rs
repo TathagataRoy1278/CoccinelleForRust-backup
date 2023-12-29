@@ -217,14 +217,14 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         merge_all: impl Fn(
             &SubstitutionList<S::Mvar, S::Value>,
             &SubstitutionList<S::Mvar, S::Value>,
-        ) -> SubstitutionList<S::Mvar, S::Value>,
+        ) -> Result<SubstitutionList<S::Mvar, S::Value>, &'static str>,
     ) -> Result<SubstitutionList<S::Mvar, S::Value>, &'static str> {
         match (ctheta.as_slice(), ctheta_prime.as_slice()) {
             ([], _) => Ok(ctheta_prime.iter().flat_map(|(_, ths)| ths.clone()).collect()),
             (_, []) => Ok(ctheta.iter().flat_map(|(_, ths)| ths.clone()).collect()),
             (&[(ref x, ref ths)], &[(ref y, ref ths_prime)]) => match x.cmp(&y) {
                 std::cmp::Ordering::Equal => Ok(CTL_ENGINE::<G, S, P>::safe_append(
-                    merge_all(ths, ths_prime),
+                    merge_all(ths, ths_prime)?,
                     CTL_ENGINE::<G, S, P>::loop_fn_conj(
                         ctheta[1..].to_vec(),
                         ctheta_prime[1..].to_vec(),
@@ -248,7 +248,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     )?,
                 )),
             },
-            _ => Err("ctl_engine: not possible 2"),
+            _ => panic!("ctl_engine: not possible 2" ),
         }
     }
 
@@ -261,20 +261,31 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
             (_, true) => Ok(env1.clone()),
             _ => {
                 fn classify<G: Graph, S: Subs, P: Pred>(
-                    env: &SubstitutionList<S::Mvar, S::Value>,
+                    env: &[Substitution<S::Mvar, S::Value>],
                 ) -> Vec<(S::Mvar, Vec<Substitution<S::Mvar, S::Value>>)> {
-                    let mut prev = env[0].mvar().clone();
-                    let mut res = vec![(prev.clone(), vec![env[0].clone()])];
-                    for i in env[1..].iter() {
-                        if i.mvar() == &prev {
-                            let elem = res.last_mut().unwrap();
-                            elem.1.push(i.clone());
-                        } else {
-                            res.push((i.mvar().clone(), vec![i.clone()]));
-                            prev = i.mvar().clone();
+                    match env {
+                        [] => vec![],
+                        [ x ] => vec![(x.mvar().clone(), vec![x.clone()])],
+                        [ x, xs @ ..] => {
+                            match classify::<G, S, P>(xs).as_slice() {
+                                res @ [(nm, y), ys @ ..]=> {
+                                    if x.mvar() == nm {
+                                        let  mut tmp = vec![x.clone()];
+                                        tmp.append(&mut y.clone());
+                                        let mut tmp = vec![(nm.clone(), tmp)];
+                                        tmp.append(&mut ys.to_vec());
+                                        tmp
+                                    }
+                                    else {
+                                        let mut tmp = vec![(x.mvar().clone(), vec![x.clone()])];
+                                        tmp.append(&mut res.to_vec());
+                                        tmp
+                                    }
+                                }
+                                _ => panic!("ctl_engine: not possible 1")
+                            }
                         }
                     }
-                    return res;
                 }
                 let merge_all =
                     |theta1: &SubstitutionList<S::Mvar, S::Value>,
