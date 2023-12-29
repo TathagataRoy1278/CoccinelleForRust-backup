@@ -1,6 +1,7 @@
 use ctl_ast::Direction;
 use itertools::Itertools;
-use ra_hir::known::usize;
+use ra_hir::known::{std, usize};
+use std::cmp::Ordering;
 use std::marker::PhantomData;
 
 use crate::{commons::info::Unknown, ctl::ctl_ast};
@@ -11,6 +12,8 @@ type Substitution<Mvar: Eq, Value: Clone + SubsVal<Value> + Eq> =
     ctl_ast::GenericSubst<Mvar, Value>;
 type SubstitutionList<Mvar, Val> = Vec<Substitution<Mvar, Val>>;
 type Witness<State, Anno, Value> = ctl_ast::GenericWitnessTree<State, Anno, Value>;
+type Triple<G: Graph, S: Subs> =
+    (G::Node, SubstitutionList<S::Mvar, S::Value>, Witness<Unknown, Unknown, Unknown>);
 
 trait Graph {
     type Cfg;
@@ -19,6 +22,8 @@ trait Graph {
     fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
     fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
 
+    fn direct_predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
+    fn direct_successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
 }
 
 trait Subs {
@@ -40,6 +45,10 @@ struct CTL_ENGINE<G: Graph, S: Subs, P: Pred> {
 impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     fn mem_by<A: PartialEq>(a: &A, b: &[A]) -> bool {
         b.contains(a)
+    }
+
+    fn setify<A: PartialEq>(mut v: Vec<A>) -> Vec<A> {
+        v.into_iter().dedup().collect_vec()
     }
 
     fn nub_by<A: PartialEq + Clone>(l: &[A]) -> Vec<A> {
@@ -270,15 +279,24 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 let merge_all =
                     |theta1: &SubstitutionList<S::Mvar, S::Value>,
                      theta2: &SubstitutionList<S::Mvar, S::Value>|
-                     -> SubstitutionList<S::Mvar, S::Value> {
-                        theta1.into_iter().fold(vec![], |acc, sub1| {
-                            theta2.iter().fold(acc, |rest, sub2| {
-                                match CTL_ENGINE::<G, S, P>::merge_sub(sub1.clone(), sub2.clone()) {
-                                    Some(subs) => [&rest[..], &subs[..]].concat(),
-                                    None => panic!("SUBST_MISMATCH"),
-                                }
+                     -> Result<SubstitutionList<S::Mvar, S::Value>, &'static str> {
+                        let res = std::panic::catch_unwind(|| {
+                            theta1.into_iter().fold(vec![], |acc, sub1| {
+                                theta2.iter().fold(acc, |rest, sub2| {
+                                    match CTL_ENGINE::<G, S, P>::merge_sub(sub1.clone(), sub2.clone()) {
+                                        Some(subs) => [&rest[..], &subs[..]].concat(),
+                                        None => panic!("SUBST_MISMATCH"),
+                                    }
+                                })
                             })
-                        })
+                        });
+                        if res.is_err() {
+                            Err("SUBST_MISNATCH")
+                        }
+                        else {
+                            Ok(res.unwrap())
+                        }
+
                     };
                 Ok(CTL_ENGINE::<G, S, P>::clean_subst(&mut CTL_ENGINE::<G, S, P>::loop_fn_conj(
                     classify::<G, S, P>(env1),
@@ -291,9 +309,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     // TRIPLES
-    fn triples_conj<Mvar: Clone + Eq, Val: Clone + SubsVal<Val> + Eq>(
-        t1: Vec<Triple<Mvar, Val, G>>,
-        t2: Vec<Triple<Mvar, Val, G>>,
+    fn triples_conj<Mvar: Clone + Eq, Val: Clone + SubsVal<Val> + Eq>(// t1: Vec<Triple<Mvar, Val, G>>,
+        // t2: Vec<Triple<Mvar, Val, G>>,
     ) {
     }
 
@@ -365,7 +382,51 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         return ret;
     }
 
-    fn pre_forall(dir: Direction, grp: G::Cfg) {}
+    fn pre_forall(dir: Direction, grp: &G::Cfg, y: &G::Node, mut all: Vec<Triple<G, S>>) {
+        let pred = match dir {
+            Direction::Forward => G::direct_predecessors,
+            Direction::Backward => G::direct_successors,
+        };
+
+        let succ = match dir {
+            Direction::Backward => G::direct_predecessors,
+            Direction::Forward => G::direct_successors,
+        };
+
+        let neighbours =
+            CTL_ENGINE::setify(pred(grp, y)).into_iter().map(|x| (x, succ(grp, &x))).collect_vec();
+        all.sort();
+
+        fn up_nodes<A: Eq + Ord + Clone, B, C>(child: A, s: A, v: &[(A, B, C)]) -> Vec<(A, B, C)> {
+            match v {
+                [] => vec![],
+                [(s1, th, wit), xs @ ..] => match s1.cmp(&child) {
+                    Ordering::Less => up_nodes(child, s, xs),
+                    Ordering::Equal => {
+                        let mut tmp = vec![(s.clone(), th, wit)];
+                        tmp.extend(up_nodes(child, s, xs));
+                        tmp
+                    }
+                    Ordering::Greater => {
+                        vec![]
+                    }
+                },
+            }
+        }
+
+        neighbours.iter().fold(
+            vec![],
+            |mut rest: Vec<Vec<Vec<Triple<G, S>>>>, (s, children): (G::Node, Vec<G::Node>)| {
+                let tmp = children.into_iter().map(|x| match up_nodes(x, s, all).as_slice() {
+                    [] => panic!(""),
+                    l => l.collect_vec()
+                }).collect_vec();
+                rest.insert(0, tmp);
+                vec![]
+            },
+        );
+
+    }
 
     // fn pre_forall(dir: Direction, cfg: &EgGrpah<'a>, y: Vec<(Node<'a>, Unknown, Unknown)>, )
 
@@ -381,9 +442,6 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     //     }
     // }
 }
-type Triple<Mvar, Value: Clone, G: Graph> =
-    (G::Node, SubstitutionList<Mvar, Value>, GenericWitnessTreeList<Unknown, Unknown, Unknown>);
-
 pub trait SubsVal<Value> {
     // fn print_mvar(&self, b: Self) -> bool;
     // fn print_value(&self, b: Self) -> bool;
