@@ -2,11 +2,13 @@ use std::{marker::PhantomData, rc::Rc};
 
 use crate::parsing_cocci::ast0::KeepBinding;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Strict {
     Strict,
     NonStrict,
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Direction {
     Forward,
     Backward,
@@ -14,12 +16,13 @@ pub enum Direction {
 
 pub type Keepbinding = bool;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum GenericCtl<Pred, Mvar, Anno> {
     False,
-    Trye,
+    True,
     Pred(Pred),
     Not(Box<GenericCtl<Pred, Mvar, Anno>>),
-    Exists(KeepBinding, Mvar, Box<GenericCtl<Pred, Mvar, Anno>>),
+    Exists(Keepbinding, Mvar, Box<GenericCtl<Pred, Mvar, Anno>>),
     And(Strict, (Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>)),
     AndAny(Direction, Strict, Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>),
     HackForStmt(
@@ -48,16 +51,31 @@ pub enum GenericCtl<Pred, Mvar, Anno> {
     XX(Box<GenericCtl<Pred, Mvar, Anno>>, PhantomData<Anno>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum GenericSubst<Mvar: Clone, Value: Clone> {
     Subst(Mvar, Value),
     NegSubst(Mvar, Value),
+}
+
+impl<Mvar: Clone, Val: Clone> GenericSubst<Mvar, Val> {
+    pub fn neg(&self) -> GenericSubst<Mvar, Val>{
+        match self.clone() {
+            GenericSubst::Subst(a, b) => GenericSubst::NegSubst(a, b),
+            GenericSubst::NegSubst(a, b) => GenericSubst::Subst(a, b)
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord)]
 pub enum GenericWitnessTree<State, Subst, Anno> {
     Wit(State, Subst, Anno, Vec<GenericWitnessTree<State, Subst, Anno>>),
     NegWit(Box<GenericWitnessTree<State, Subst, Anno>>),
+}
+
+impl<A: Clone, B: Clone, C: Clone> GenericWitnessTree<A, B, C> {
+    pub fn neg(&self) -> GenericWitnessTree<A, B, C> {
+        GenericWitnessTree::NegWit(Box::new(self.clone()))
+    }
 }
 
 pub type GenericWitnessTreeList<A, B, C> = Vec<GenericWitnessTree<A, B, C>>;
