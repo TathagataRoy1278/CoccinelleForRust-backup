@@ -539,7 +539,7 @@ fn getpatch(
 ) -> Patch {
     let plusbuf = format!("{}{}", "\n".repeat(llino), plusbuf);
     let minusbuf = format!("{}{}", "\n".repeat(llino), minusbuf);
-    let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str()) };
+    let mut p = Patch { plus: wrap_root(plusbuf.as_str()).unwrap(), minus: wrap_root(minusbuf.as_str()).unwrap() };
     p.setmetavars(metavars);
     p.setminus();
     get_body(&mut p.minus);

@@ -4,6 +4,9 @@
 /src/bin/test.rs
 /Cargo.lock
 
+/.vscode
+/.idea
+
 /talks/*
 !/talks/*.tex
 

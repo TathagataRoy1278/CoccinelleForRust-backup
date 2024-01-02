@@ -11,7 +11,7 @@ use super::ast0::{wrap_root, Snode};
 
 type Tag = SyntaxKind;
 
-fn ttree_to_expr_list(tt: String) -> Vec<Snode> {
+fn ttree_to_expr_list(tt: String) -> Result<Vec<Snode>, &'static str> {
     let wrapped = format!(
         "fn func() {{
             fcall({})
@@ -19,7 +19,7 @@ fn ttree_to_expr_list(tt: String) -> Vec<Snode> {
         tt
     );
 
-    let mut rnode = wrap_root(&wrapped);
+    let mut rnode = wrap_root(&wrapped)?;
     let mut args = rnode.children[0] //fn
         .children[3] //blockexpr
         .children[0] //stmtlist
@@ -42,7 +42,7 @@ fn ttree_to_expr_list(tt: String) -> Vec<Snode> {
         })
     });
 
-    return args.children;
+    return Ok(args.children);
 
     //let exprlist = node.chil;
 }
@@ -92,7 +92,16 @@ pub fn work_node<'a>(
                         }
                         Tag::TOKEN_TREE => {
                             let mut exprlist =
-                                ttree_to_expr_list(child.as_node().unwrap().to_string());
+                                match ttree_to_expr_list(child.as_node().unwrap().to_string()) {
+                                    Ok(exprlist) => exprlist,
+                                    Err(_) => {
+                                        let snode =
+                                            work_node(lindex, wrap_node, child, modkind.clone());
+                                        children.push(snode);
+                                        continue;
+                                    }
+                                };
+
                             let info =
                                 work_node(lindex, wrap_node, child, modkind.clone()).wrapper.info;
 

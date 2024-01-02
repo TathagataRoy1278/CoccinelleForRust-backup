@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
-use std::process::exit;
 
 use crate::commons::util::collecttree;
 
@@ -842,32 +841,39 @@ pub fn parsedisjs<'a>(_node: &mut Snode) {
     todo!()
 }
 
-pub fn wrap_root(contents: &str) -> Snode {
+pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
     let lindex = LineIndex::new(contents);
 
     let parse = SourceFile::parse(contents);
     let errors = parse.errors();
 
-    if errors.len() > 0 {
-        for error in errors {
-            let lindex = lindex.line_col(error.range().start());
+    for error in errors {
+        let lindex = lindex.line_col(error.range().start());
 
-            // To Note:
-            // Skipping the next error is a hack to be able to parse
-            // fn func(param) { ... } as the compiler needs param to have
-            // type specified but the [Rust CFG] https://github.com/rust-lang/rust-analyzer/blob/master/crates/syntax/rust.ungram
-            // for param without type. This is for accomodating the parameter
-            // metavariable in the semantic patch. This will cause problems
-            // when someone actually makes this mistake and param is not a metavar
-            // Have to find a more elegant solution to this
+        // To Note:
+        // Skipping the next error is a hack to be able to parse
+        // fn func(param) { ... } as the compiler needs param to have
+        // type specified but the [Rust CFG] https://github.com/rust-lang/rust-analyzer/blob/master/crates/syntax/rust.ungram
+        // for param without type. This is for accomodating the parameter
+        // metavariable in the semantic patch. This will cause problems
+        // when someone actually makes this mistake and param is not a metavar
+        // Have to find a more elegant solution to this
 
+<<<<<<< HEAD
             if error.to_string().contains("missing type for function parameter") {
                 break;
             }
             eprintln!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
             eprintln!("{}", parse.syntax_node().to_string());
             exit(1);
+=======
+        if error.to_string().contains("missing type for function parameter") {
+            break;
+>>>>>>> a77f83a (Fixed snode/cocci parser crashing issue)
         }
+        println!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
+        println!("{}", parse.syntax_node().to_string());
+        return Err("Unparsable");
     }
 
     let root = SourceFile::parse(contents).syntax_node();
@@ -910,6 +916,10 @@ pub fn wrap_root(contents: &str) -> Snode {
 
         snode
     };
+<<<<<<< HEAD
     let snode = work_node(&lindex, wrap_node, SyntaxElement::Node(root), None);
     snode
+=======
+    Ok(work_node(&lindex, wrap_node, SyntaxElement::Node(root), None))
+>>>>>>> a77f83a (Fixed snode/cocci parser crashing issue)
 }
