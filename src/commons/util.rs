@@ -68,6 +68,43 @@ macro_rules! debugengine {
     };
 }
 
+#[macro_export]
+macro_rules! C {
+    [$id:ident] => {
+        GenericCtl::$id
+    };
+    [$id:ident, $e:expr] => {
+        GenericCtl::$id(Box::new($e))
+    };
+    [$id:ident, $e1:expr, $e2:expr] => {
+        GenericCtl::$id(Box::new($e1), Box::new($e2))
+    };
+    [$id:ident, $e1:expr, $e2:expr, $e3: expr] => {
+        GenericCtl::$id(Box::new($e1), Box::new($e2), Box::new(e3))
+    };
+    [$id:ident, $e1:expr, $e2:expr, $e3: expr, $e4: expr] => {
+        GenericCtl::$id($e1, $e2, Box::new($e3), Box::new($e4))
+    };
+    
+}
+
+#[macro_export]
+macro_rules! satvs {
+    ($self:expr, $unchecked:expr, $required:expr, $required_states:expr, $phi:expr, $env:expr, $annot: expr) => {
+        $self.sat_verbose_loop(
+            $unchecked,
+            $required,
+            $required_states,
+            $annot,
+            maxlvl,
+            lvl + 1,
+            m,
+            $phi,
+            $env,
+        )
+    };
+}
+
 pub fn tuple_of_2<T>(v: &mut Vec<T>) -> [&mut T; 2] {
     match &mut v[..2] {
         [a, b] => [a, b],

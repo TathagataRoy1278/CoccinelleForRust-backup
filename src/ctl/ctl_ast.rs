@@ -1,14 +1,14 @@
-use std::{marker::PhantomData, rc::Rc};
+use std::{marker::PhantomData, rc::Rc, borrow::Borrow};
 
 use crate::parsing_cocci::ast0::KeepBinding;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Strict {
     Strict,
     NonStrict,
 }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash)]
 pub enum Direction {
     Forward,
     Backward,
@@ -43,7 +43,7 @@ pub enum GenericCtl<Pred, Mvar, Anno> {
     EG(Direction, Box<GenericCtl<Pred, Mvar, Anno>>),
     EU(Direction, Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>),
     Let(String, Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>),
-    LetR(Direction, String, Box<GenericCtl<Pred, Mvar, Anno>>),
+    LetR(Direction, String, Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>),
     Ref(String),
     SeqOr(Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>),
     Uncheck(Box<GenericCtl<Pred, Mvar, Anno>>),

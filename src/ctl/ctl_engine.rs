@@ -2,27 +2,39 @@ use ctl_ast::Direction;
 use either::Either;
 use itertools::Itertools;
 use ra_hir::known::{std, usize};
-use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::iter;
 use std::marker::PhantomData;
+use std::{cmp::Ordering, os::linux::raw::stat};
 
-use crate::{commons::info::Unknown, ctl::ctl_ast};
+use crate::{commons::info::Unknown, commons::util, ctl::ctl_ast, C};
 
-use super::ctl_ast::{GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList};
+use super::flag_ctl::LOOP_IN_SRC_MODE;
+use super::{
+    ctl_ast::{GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict},
+    flag_ctl::PARTIAL_MATCH,
+};
 
 static pNEW_INFO_OPT: bool = true;
 static pSATLEBEL_MEMO_OPT: bool = true;
 static pREQUIRED_ENV_OPT: bool = true;
+static pUNCHECKED_OPT: bool = true;
+static pREQUIRED_STATES_OPT: bool = true;
+
 type Substitution<Mvar: Eq, Value: Clone + Eq> = ctl_ast::GenericSubst<Mvar, Value>;
 type SubstitutionList<S: Subs> = Vec<Substitution<S::Mvar, S::Value>>;
 type Witness<State, Anno, Value> = ctl_ast::GenericWitnessTree<State, Anno, Value>;
+type CTL<S: Subs, P: Pred> = Vec<GenericCtl<P::ty, S::Mvar, Vec<String>>>;
+type WitnessTree<G: Graph, S: Subs, P: Pred> =
+    GenericWitnessTree<G::Node, SubstitutionList<S>, Vec<CTL<S, P>>>;
 
 type NodeList<G: Graph> = Vec<G::Node>;
 
 type Triple<G: Graph, S: Subs, P: Pred> = (G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>);
 type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
 
+type Model<G: Graph, S: Subs, P: Pred> = (G::Cfg, fn(P::ty) -> TripleList<G, S, P>, fn(&P::ty) -> bool, NodeList<G>);
 enum Auok<G: Graph, S: Subs, P: Pred> {
     Auok(TripleList<G, S, P>),
     AuFailed(TripleList<G, S, P>),
@@ -30,7 +42,7 @@ enum Auok<G: Graph, S: Subs, P: Pred> {
 
 trait Graph {
     type Cfg;
-    type Node: PartialEq + Ord + Clone;
+    type Node: PartialEq + Ord + Clone + Hash + Copy;
 
     fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
     fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
@@ -39,6 +51,8 @@ trait Graph {
     fn direct_successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
 
     fn extract_is_loop(cfg: &Self::Cfg, node: &Self::Node) -> bool;
+
+    fn size(cfg: &Self::Cfg) -> usize;
 }
 
 trait Subs {
@@ -57,9 +71,6 @@ enum WitAnnoTree<A> {
     WitAnno(A, Vec<WitAnnoTree<A>>),
 }
 
-type WitnessTree<G: Graph, S: Subs, P: Pred> =
-    GenericWitnessTree<G::Node, SubstitutionList<S>, Vec<GenericCtl<P::ty, S::Mvar, Vec<String>>>>;
-
 fn annot<A, B, C>() {
     let simpleAnno = |l: A, phi: B, res: C| {
         print!(""); //unimplemented
@@ -68,6 +79,8 @@ fn annot<A, B, C>() {
 
 struct CTL_ENGINE<G: Graph, S: Subs, P: Pred> {
     reachable_state: HashMap<(G::Node, Direction), Vec<G::Node>>,
+    reachable_table: HashMap<(G::Node, Direction), Vec<G::Node>>,
+    memo_label: HashMap<P::ty, (G::Node, Substitution<S::Mvar, S::Value>)>,
     has_loop: bool,
     _b: PhantomData<S>,
     _c: PhantomData<P>,
@@ -76,7 +89,13 @@ struct CTL_ENGINE<G: Graph, S: Subs, P: Pred> {
 //===========================================================================/
 //Functions//
 
-fn union_vec<A: PartialEq + Clone>(a: &Vec<A>, b: &Vec<A>) -> Vec<A> {
+fn nub<A: Clone + Ord>(v: &Vec<A>) -> Vec<A> {
+    let mut v = v.clone();
+    v.sort();
+    v.into_iter().dedup().collect_vec()
+}
+
+fn set_union<A: PartialEq + Clone>(a: &Vec<A>, b: &Vec<A>) -> Vec<A> {
     b.iter().fold(a.clone(), |mut acc, x| {
         if acc.contains(x) {
             return acc;
@@ -85,6 +104,26 @@ fn union_vec<A: PartialEq + Clone>(a: &Vec<A>, b: &Vec<A>) -> Vec<A> {
             return acc;
         }
     })
+}
+
+fn mkstates<A: Clone>(states: &Vec<A>, required_states: &Option<Vec<A>>) -> Vec<A> {
+    match required_states {
+        None => states.clone(),
+        Some(states) => states.clone(),
+    }
+}
+
+fn hash_notest<A: Eq + Hash, B>(tbl: &mut HashMap<A, Vec<B>>, key: A, value: B) {
+    match tbl.get_mut(&key) {
+        Some(curr) => {
+            let mut tmp = vec![value];
+            tmp.append(curr);
+            tbl.insert(key, tmp);
+        }
+        None => {
+            tbl.insert(key, vec![value]);
+        }
+    }
 }
 
 fn split_subst<S: Subs>(
@@ -106,12 +145,12 @@ fn split_subst<S: Subs>(
 }
 
 //FixPOINT
-fn fix<A>(eq: impl Fn(&A, &A) -> bool, f: impl Fn(&A) -> A, x: A) -> A {
-    let x1 = f(&x);
+fn fix<A>(eq: impl Fn(&A, &A) -> bool, f: impl Fn(&A) -> A, x: &A) -> A {
+    let x1 = f(x);
     if eq(&x, &x1) {
         x1
     } else {
-        fix(eq, f, x1)
+        fix(eq, f, &x1)
     }
 }
 
@@ -119,7 +158,11 @@ fn subsetEq<A: Eq>(xs: &Vec<A>, ys: &Vec<A>) -> bool {
     xs.iter().all(|x| ys.contains(x))
 }
 
-fn setfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: Vec<A>) -> Vec<A> {
+fn setfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: &Vec<A>) -> Vec<A> {
+    fix(subsetEq, f, x)
+}
+
+fn setgfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: &Vec<A>) -> Vec<A> {
     fix(subsetEq, f, x)
 }
 
@@ -158,8 +201,167 @@ fn negate_wit<G: Graph, S: Subs, P: Pred>(
 }
 
 impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
+    fn drop_wits(
+        required_states: &Option<NodeList<G>>,
+        s: &TripleList<G, S, P>,
+    ) -> TripleList<G, S, P> {
+        match required_states {
+            None => s.clone(),
+            Some(states) => {
+                s.clone().into_iter().filter(|(s, _, _)| states.contains(s)).collect_vec()
+            }
+        }
+    }
+
     fn mem_by<A: PartialEq>(a: &A, b: &[A]) -> bool {
         b.contains(a)
+    }
+
+    fn get_children_required_states(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        required_states: &Option<NodeList<G>>,
+    ) -> Option<NodeList<G>> {
+        None
+    }
+
+    fn strict_a1(
+        strict: Strict,
+        op: fn(
+            &Direction,
+            &Model<G, S, P>,
+            &TripleList<G, S, P>,
+            &Option<NodeList<G>>,
+        ) -> TripleList<G, S, P>,
+        failop: fn(
+            &Direction,
+            &Model<G, S, P>,
+            &TripleList<G, S, P>,
+            &Option<NodeList<G>>,
+        ) -> TripleList<G, S, P>,
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        trips: &TripleList<G, S, P>,
+        required_states: &Option<Vec<G::Node>>,
+    ) -> TripleList<G, S, P> {
+        let res = op(dir, &m, trips, required_states);
+        if !PARTIAL_MATCH && strict == Strict::Strict {
+            let states = mkstates(&m.3, &required_states);
+            let fail = Self::filter_conj(&states, &res, &(failop(dir, m, trips, required_states)));
+            return Self::triples_union(&res, &fail);
+        } else {
+            return res;
+        }
+    }
+
+    fn strict_A2au(
+        strict: Strict,
+        op: fn(
+            &Direction,
+            &Model<G, S, P>,
+            &TripleList<G, S, P>,
+            &TripleList<G, S, P>,
+            &Option<NodeList<G>>,
+        ) -> Auok<G, S, P>,
+        failop: fn(
+            &Direction,
+            &Model<G, S, P>,
+            &TripleList<G, S, P>,
+            &Option<NodeList<G>>,
+        ) -> TripleList<G, S, P>,
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        trips1: &TripleList<G, S, P>,
+        trips2: &TripleList<G, S, P>,
+        required_states: &Option<NodeList<G>>,
+    ) -> Auok<G, S, P> {
+        match op(dir, m, trips1, trips2, required_states) {
+            Auok::Auok(res) => {
+                if !PARTIAL_MATCH && strict == Strict::Strict {
+                    let states = mkstates(&m.3, required_states);
+                    let fail =
+                        Self::filter_conj(&states, &res, &failop(dir, m, trips1, required_states));
+                    Auok::Auok(Self::triples_union(&res, &fail))
+                } else {
+                    Auok::Auok(res)
+                }
+            }
+            Auok::AuFailed(res) => Auok::AuFailed(res),
+        }
+    }
+
+    fn strict_A2(
+        strict: Strict,
+        op: fn(
+            &Direction,
+            &Model<G, S, P>,
+            &TripleList<G, S, P>,
+            &TripleList<G, S, P>,
+            &Option<NodeList<G>>,
+        ) -> TripleList<G, S, P>,
+        failop: fn(
+            &Direction,
+            &Model<G, S, P>,
+            &TripleList<G, S, P>,
+            &Option<NodeList<G>>,
+        ) -> TripleList<G, S, P>,
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        trips1: &TripleList<G, S, P>,
+        trips2: &TripleList<G, S, P>,
+        required_states: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        let res = op(dir, m, trips1, trips2, required_states);
+        if !PARTIAL_MATCH && strict == Strict::Strict {
+            let states = mkstates(&m.3, required_states);
+            let fail = Self::filter_conj(&states, &res, &failop(dir, m, trips2, required_states));
+            Self::triples_union(&res, &fail)
+        } else {
+            res
+        }
+    }
+
+    fn reachsatEF(&self, dir: &Direction, grp: &Model<G, S, P>, s2: &NodeList<G>) -> NodeList<G> {
+        let dirop = |node: &G::Node| match dir {
+            Direction::Forward => G::successors(&grp.0, node),
+            Direction::Backward => G::predecessors(&grp.0, node),
+        };
+
+        fn f<G: Graph, S: Subs, P: Pred>(
+            y: &NodeList<G>,
+            res: &NodeList<G>,
+            ht: &HashMap<(G::Node, Direction), NodeList<G>>,
+            dir: &Direction,
+            dirop: impl Fn(&G::Node) -> Vec<G::Node>,
+        ) -> NodeList<G> {
+            match res.as_slice() {
+                [] => y.clone(),
+                ni => {
+                    let mut pre_collected = vec![];
+                    let mut new_info = vec![];
+
+                    for n in ni {
+                        let t = ht.get(&(n.clone(), *dir));
+                        if t.is_some() {
+                            pre_collected.push(t.unwrap());
+                        } else {
+                            new_info.push(n.clone());
+                        }
+                    }
+                    let y = pre_collected
+                        .iter()
+                        .fold(y.clone(), |rest, x| CTL_ENGINE::<G, S, P>::union_by(x, &res));
+                    let first = CTL_ENGINE::<G, S, P>::inner_setify(
+                        &new_info.iter().flat_map(|node| dirop(node)).collect_vec(),
+                    );
+                    let new_info = setdiff(first, &y);
+                    let mut res = new_info.clone();
+                    res.extend(y);
+                    f::<G, S, P>(&res, &new_info, ht, dir, dirop)
+                }
+            }
+        }
+        f::<G, S, P>(s2, s2, &self.reachable_table, dir, dirop).into_iter().rev().collect_vec()
     }
 
     fn triple_negate(
@@ -182,11 +384,23 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     ) -> Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)> {
         states.iter().map(|x| (x.clone(), vec![], vec![])).collect_vec()
     }
-    fn setify<A: PartialEq>(mut v: Vec<A>) -> Vec<A> {
-        v.into_iter().dedup().collect_vec()
+
+    fn setify<A: PartialEq + Clone + Ord>(mut v: &Vec<A>) -> Vec<A> {
+        nub(v)
     }
 
-    fn triples_witness(x: &S::Mvar, unchecked: bool, not_keep: bool, trips: &TripleList<G, S, P>) -> TripleList<G, S, P>{
+    fn inner_setify<A: PartialEq + Clone + Ord>(mut v: &Vec<A>) -> Vec<A> {
+        let mut a = Self::setify(v);
+        a.sort();
+        a
+    }
+
+    fn triples_witness(
+        x: &S::Mvar,
+        unchecked: bool,
+        not_keep: bool,
+        trips: &TripleList<G, S, P>,
+    ) -> TripleList<G, S, P> {
         let anyneg = |x: &SubstitutionList<S>| {
             x.iter().any(|x| match x {
                 GenericSubst::NegSubst(_, _) => true,
@@ -229,15 +443,21 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                         (
                             s.clone(),
                             newth,
-                            vec![WitnessTree::NegWit(Box::new(WitnessTree::Wit(
-                                s.clone(),
-                                th_x,
-                                vec![],
-                                negtopos(&wit),
-                            )))],
+                            vec![WitnessTree::<G, S, P>::NegWit(Box::new(
+                                WitnessTree::<G, S, P>::Wit(
+                                    s.clone(),
+                                    th_x,
+                                    vec![],
+                                    negtopos(&wit),
+                                ),
+                            ))],
                         )
                     } else {
-                        (s.clone(), newth, vec![WitnessTree::Wit(s.clone(), th_x, vec![], wit.clone())])
+                        (
+                            s.clone(),
+                            newth,
+                            vec![WitnessTree::<G, S, P>::Wit(s.clone(), th_x, vec![], wit.clone())],
+                        )
                     };
                     prev.insert(0, new_triple.clone());
                     prev
@@ -245,9 +465,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
             }
         });
         if unchecked {
-            CTL_ENGINE::<G, S, P>::setify(res)
-        }
-        else {
+            Self::setify(&res)
+        } else {
             res.into_iter().rev().collect_vec()
         }
     }
@@ -256,9 +475,9 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         match l {
             [] => vec![],
             xx => match xx.split_first() {
-                Some((a, aa)) if aa.contains(a) => CTL_ENGINE::<G, S, P>::nub_by(aa),
+                Some((a, aa)) if aa.contains(a) => Self::nub_by(aa),
                 Some((a, aa)) => {
-                    let mut b = CTL_ENGINE::<G, S, P>::nub_by(aa);
+                    let mut b = Self::nub_by(aa);
                     b.insert(0, a.clone());
                     b
                 }
@@ -358,7 +577,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         sub1: Substitution<S::Mvar, S::Value>,
         sub2: Substitution<S::Mvar, S::Value>,
     ) -> Option<Vec<GenericSubst<S::Mvar, S::Value>>> {
-        CTL_ENGINE::<G, S, P>::merge_sub_by(sub1, sub2)
+        Self::merge_sub_by(sub1, sub2)
     }
 
     // Substitution or Theta functions
@@ -420,29 +639,21 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
             ([], _) => Ok(ctheta_prime.iter().flat_map(|(_, ths)| ths.clone()).collect()),
             (_, []) => Ok(ctheta.iter().flat_map(|(_, ths)| ths.clone()).collect()),
             (&[(ref x, ref ths)], &[(ref y, ref ths_prime)]) => match x.cmp(&y) {
-                std::cmp::Ordering::Equal => Ok(CTL_ENGINE::<G, S, P>::safe_append(
+                std::cmp::Ordering::Equal => Ok(Self::safe_append(
                     merge_all(ths, ths_prime)?,
-                    CTL_ENGINE::<G, S, P>::loop_fn_conj(
+                    Self::loop_fn_conj(
                         ctheta[1..].to_vec(),
                         ctheta_prime[1..].to_vec(),
                         merge_all,
                     )?,
                 )),
-                std::cmp::Ordering::Less => Ok(CTL_ENGINE::<G, S, P>::safe_append(
+                std::cmp::Ordering::Less => Ok(Self::safe_append(
                     ths.clone(),
-                    CTL_ENGINE::<G, S, P>::loop_fn_conj(
-                        ctheta[1..].to_vec(),
-                        ctheta_prime.clone(),
-                        merge_all,
-                    )?,
+                    Self::loop_fn_conj(ctheta[1..].to_vec(), ctheta_prime.clone(), merge_all)?,
                 )),
-                std::cmp::Ordering::Greater => Ok(CTL_ENGINE::<G, S, P>::safe_append(
+                std::cmp::Ordering::Greater => Ok(Self::safe_append(
                     ths_prime.clone(),
-                    CTL_ENGINE::<G, S, P>::loop_fn_conj(
-                        ctheta.clone(),
-                        ctheta_prime[1..].to_vec(),
-                        merge_all,
-                    )?,
+                    Self::loop_fn_conj(ctheta.clone(), ctheta_prime[1..].to_vec(), merge_all)?,
                 )),
             },
             _ => panic!("ctl_engine: not possible 2"),
@@ -493,7 +704,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                             if is_error {
                                 return vec![];
                             }
-                            match CTL_ENGINE::<G, S, P>::merge_sub(sub1.clone(), sub2.clone()) {
+                            match Self::merge_sub(sub1.clone(), sub2.clone()) {
                                 Some(subs) => [&rest[..], &subs[..]].concat(),
                                 None => {
                                     is_error = true;
@@ -508,7 +719,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                         return Ok(res);
                     }
                 };
-                Ok(CTL_ENGINE::<G, S, P>::clean_subst(&mut CTL_ENGINE::<G, S, P>::loop_fn_conj(
+                Ok(Self::clean_subst(&mut Self::loop_fn_conj(
                     classify::<G, S, P>(env1),
                     classify::<G, S, P>(env2),
                     merge_all,
@@ -519,14 +730,14 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     // TRIPLES
-    fn triples_conj(t1: TripleList<G, S, P>, t2: &TripleList<G, S, P>) -> TripleList<G, S, P> {
+    fn triples_conj(t1: &TripleList<G, S, P>, t2: &TripleList<G, S, P>) -> TripleList<G, S, P> {
         let mut shared: TripleList<G, S, P> = vec![];
         t1.iter().fold(shared, |rest, (s1, th1, wit1)| {
             t2.iter().fold(rest, |rest, (s2, th2, wit2)| {
                 if s1 == s2 {
-                    match CTL_ENGINE::<G, S, P>::conj_subst(th1, th2) {
+                    match Self::conj_subst(th1, th2) {
                         Ok(th) => {
-                            let t = (s1.clone(), th, CTL_ENGINE::<G, S, P>::union_wit(wit1, wit2));
+                            let t = (s1.clone(), th, Self::union_wit(wit1, wit2));
                             if rest.contains(&t) {
                                 rest
                             } else {
@@ -543,15 +754,15 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn triples_union(
-        trips1: TripleList<G, S, P>,
-        trips2: TripleList<G, S, P>,
+        trips1: &TripleList<G, S, P>,
+        trips2: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
-        CTL_ENGINE::<G, S, P>::union_by(&trips1, &trips2)
+        Self::union_by(&trips1, &trips2)
     }
 
     fn triples_complement(
         states: &Vec<G::Node>,
-        mut trips: TripleList<G, S, P>,
+        mut trips: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         if trips.is_empty() {
             states.iter().map(|x| (x.clone(), vec![], vec![])).collect_vec()
@@ -565,10 +776,11 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 tmp.extend(keep_pos);
                 tmp
             };
+            let mut trips = trips.clone();
             trips.sort();
             let all_negated = trips
                 .into_iter()
-                .map(|(s, th, wit)| CTL_ENGINE::<G, S, P>::triple_negate(s, &th, &wit))
+                .map(|(s, th, wit)| Self::triple_negate(s.clone(), &th, &wit))
                 .collect_vec();
             let merge_one =
                 |(neg1, pos1): &(Vec<G::Node>, TripleList<G, S, P>),
@@ -595,8 +807,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                         }
                     }
 
-                    let u = union_vec(neg1, neg2);
-                    let mut tmp = CTL_ENGINE::<G, S, P>::triples_conj(pos1conj, &pos2conj);
+                    let u = set_union(neg1, neg2);
+                    let mut tmp = Self::triples_conj(&pos1conj, &pos2conj);
                     tmp.extend(pos1keep);
                     tmp.extend(pos2keep);
                     return (u, tmp);
@@ -624,15 +836,18 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     l => return l.to_vec(),
                 }
             }
-            let inner_loop = |x| inner_loop(merge_one, x);
-            fn outer_loop<A: Clone>(inner_loop: impl Fn(&[A]) -> Vec<A>, rest: &[A]) -> A {
+            fn outer_loop<A: Clone>(
+                merge_one: fn(&A, &A) -> A,
+                inner_loop: fn(fn(&A, &A) -> A, &[A]) -> Vec<A>,
+                rest: &[A],
+            ) -> A {
                 match rest {
                     [x] => x.clone(),
-                    l => outer_loop(inner_loop, inner_loop(l).as_slice()),
+                    l => outer_loop(merge_one, inner_loop, inner_loop(merge_one, l).as_slice()),
                 }
             }
 
-            cleanup(outer_loop(inner_loop, &all_negated))
+            cleanup(outer_loop(merge_one, inner_loop, &all_negated))
         }
     }
 
@@ -665,7 +880,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         p0: &GenericWitnessTreeList<A, B, C>,
         p1: &GenericWitnessTreeList<A, B, C>,
     ) -> GenericWitnessTreeList<A, B, C> {
-        let res = CTL_ENGINE::<G, S, P>::union_by(p0, p1);
+        let res = Self::union_by(p0, p1);
         let anynegwit = |x: &GenericWitnessTree<A, B, C>| match x {
             &GenericWitnessTree::Wit(_, _, _, _) => false,
             &GenericWitnessTree::NegWit(_) => true,
@@ -677,22 +892,100 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         }
     }
 
+    fn extend_required(
+        trips: &TripleList<G, S, P>,
+        required: &Vec<Vec<SubstitutionList<S>>>,
+    ) -> Vec<Vec<SubstitutionList<S>>> {
+        if !PARTIAL_MATCH {
+            required.clone()
+        } else if !pREQUIRED_ENV_OPT {
+            todo!()
+        } else {
+            required.clone()
+        }
+    }
+
+    fn get_required_states<A, B, C>(l: &Vec<(A, B, C)>) -> Option<Vec<A>> {
+        if !pREQUIRED_STATES_OPT && PARTIAL_MATCH {
+            todo!()
+        } else {
+            None
+        }
+    }
+
+    fn unwitify_unwanted(trips: &TripleList<G, S, P>) -> TripleList<G, S, P> {
+        let anynegwit = |x: &Vec<WitnessTree<G, S, P>>| -> bool {
+            x.iter().any(|x| match x {
+                GenericWitnessTree::Wit(_, _, _, _) => false,
+                GenericWitnessTree::NegWit(_) => true,
+            })
+        };
+
+        Self::setify(&trips.iter().fold(vec![], |mut prev, (s, th, wit)| {
+            if anynegwit(&wit) {
+                prev
+            } else {
+                prev.insert(0, (s.clone(), th.clone(), vec![]));
+                prev
+            }
+        }))
+    }
+
+    //CONJ
+
+    fn filter_conj(
+        states: &NodeList<G>,
+        unwanted: &TripleList<G, S, P>,
+        partial_matches: &TripleList<G, S, P>,
+    ) -> TripleList<G, S, P> {
+        let x = Self::triples_conj(
+            &Self::triples_complement(&states, &Self::unwitify_unwanted(&unwanted)),
+            partial_matches,
+        );
+        Self::triples_conj(&Self::unwitify_unwanted(&x), &Self::triples_complement(&states, &x))
+    }
+
+    fn strict_triples_conj(
+        strict: Strict,
+        states: NodeList<G>,
+        trips1: &TripleList<G, S, P>,
+        trips2: &TripleList<G, S, P>,
+    ) -> TripleList<G, S, P> {
+        let res = Self::triples_conj(trips1, trips2);
+        if !PARTIAL_MATCH && strict == Strict::Strict {
+            let fail_left = Self::filter_conj(&states, trips1, trips2);
+            let fail_right = Self::filter_conj(&states, trips2, trips1);
+            let ors = Self::triples_union(&fail_left, &fail_right);
+
+            Self::triples_union(&res, &ors)
+        } else {
+            res
+        }
+    }
+
     // S A T
 
-    fn pre_exist<'a>(
+    fn pre_exist(
         dir: &Direction,
-        cfg: &G::Cfg,
-        y: Vec<(G::Node, Unknown, Unknown)>,
-    ) -> Vec<(G::Node, Unknown, Unknown)> {
-        let exp = |(s, th, wit): (G::Node, Unknown, Unknown)| {
+        m: &Model<G, S, P>,
+        y: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        let check = |s: &G::Node| match reqst {
+            None => true,
+            Some(reqst) => reqst.contains(s),
+        };
+        let exp = |(s, th, wit): &Triple<G, S, P>| {
             let slist = match dir {
-                Direction::Forward => G::predecessors(&cfg, &s),
-                Direction::Backward => G::successors(&cfg, &s),
+                Direction::Forward => G::predecessors(&m.0, &s),
+                Direction::Backward => G::successors(&m.0, &s),
             };
 
             let mut ret = vec![];
-            slist.into_iter().for_each(|x| {
-                ret.push((x, th.clone(), wit.clone()));
+            slist.into_iter().for_each(|x: G::Node| {
+                if check(&x) {
+                    ret.push((x.clone(), th.clone(), wit.clone()));
+                }
             });
             return ret;
         };
@@ -701,15 +994,21 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         y.into_iter().for_each(|x| ret.extend(exp(x)));
 
         //Implement setify? (removes duplicates)
-        return CTL_ENGINE::<G, S, P>::setify(ret);
+        return Self::setify(&ret);
     }
 
     fn pre_forall(
         dir: &Direction,
-        grp: &G::Cfg,
-        y: Vec<G::Node>,
-        mut all: TripleList<G, S, P>,
+        grp: &Model<G, S, P>,
+        y: &TripleList<G, S, P>,
+        mut all: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
+        let check = |s: &G::Node| match reqst {
+            None => true,
+            Some(reqst) => reqst.contains(s),
+        };
+
         let pred = match dir {
             Direction::Forward => G::direct_predecessors,
             Direction::Backward => G::direct_successors,
@@ -720,14 +1019,20 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
             Direction::Forward => G::direct_successors,
         };
 
-        let neighbours =
-            CTL_ENGINE::<G, S, P>::setify(y.into_iter().flat_map(|x| pred(grp, &x)).collect_vec())
-                .into_iter()
-                .map(|x| {
-                    let s = succ(grp, &x);
-                    (x, s)
+        let neighbours = Self::setify(
+            &y.into_iter()
+                .flat_map(|(x, _, _)| {
+                    pred(&grp.0, &x).into_iter().filter(|x| check(&x)).into_iter().collect_vec()
                 })
-                .collect_vec();
+                .collect_vec(),
+        )
+        .into_iter()
+        .map(|x| {
+            let s = succ(&grp.0, &x);
+            (x, s)
+        })
+        .collect_vec();
+        let mut all = all.clone();
         all.sort_by(|(a, _, _), (b, _, _)| a.cmp(b));
 
         fn up_nodes<A: Eq + Ord + Clone, B: Clone, C: Clone>(
@@ -776,16 +1081,29 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
             [] => vec![],
             _ => neighbour_triples
                 .into_iter()
-                .map(|a| foldl1(|x, y| CTL_ENGINE::<G, S, P>::triples_conj(x, y), a))
+                .map(|a| foldl1(|x, y| Self::triples_conj(&x, y), a))
                 .flatten()
                 .collect_vec(),
         }
     }
 
-    pub fn satAX(dir: &Direction, m: &G::Cfg, s: TripleList<G, S, P>) -> TripleList<G, S, P> {
-        CTL_ENGINE::<G, S, P>::pre_forall(dir, m, s.iter().map(|x| x.0.clone()).collect_vec(), s)
+    pub fn satAX(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        Self::pre_forall(dir, m, &s, &s, reqst)
     }
 
+    fn satEX(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        Self::pre_exist(dir, m, s, reqst)
+    }
     // fn pre_forall(dir: Direction, cfg: &EgGrpah<'a>, y: Vec<(Node<'a>, Unknown, Unknown)>, )
 
     // pub fn satEU(dir: Direction, cfg: &EgGrpah, s1: Vec<Triple>, s2: Vec<Triple>) {
@@ -799,42 +1117,67 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     //         }
     //     }
     // }
-    pub fn sat_AU<B, C>(
+    pub fn satAU(
         dir: &Direction,
-        m: (G::Cfg, B, C),
-        s1: TripleList<G, S, P>,
-        s2: TripleList<G, S, P>,
+        m: &Model<G, S, P>,
+        s1: &TripleList<G, S, P>,
+        s2: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
     ) -> Auok<G, S, P> {
         if s1.is_empty() {
-            return Auok::Auok(s2);
+            return Auok::Auok(s2.clone());
         } else if !pNEW_INFO_OPT {
             todo!();
         } else {
             let f = |y: &TripleList<G, S, P>| {
-                let pre = CTL_ENGINE::<G, S, P>::pre_forall(
-                    dir,
-                    &m.0,
-                    y.iter().map(|x| x.0.clone()).collect_vec(),
-                    y.clone(),
-                );
-                CTL_ENGINE::<G, S, P>::triples_union(
-                    s2.clone(),
-                    CTL_ENGINE::<G, S, P>::triples_conj(s1.clone(), &pre),
-                )
-                // CTL_ENGINE::<G, S, P>::
+                let pre = Self::pre_forall(dir, &m, y, y, reqst);
+                Self::triples_union(&s2, &Self::triples_conj(&s1, &pre))
+                // Self::
             };
-            return Auok::Auok(setfix(f, s2.clone()));
-            // CTL_ENGINE::<G, S, P>::union_by()
+            return Auok::Auok(setfix(f, &s2));
+            // Self::union_by()
         }
     }
 
-    fn satLabel(
+    pub fn satEU(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s1: &TripleList<G, S, P>,
+        s2: &TripleList<G, S, P>,
+        required_states: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        if s1.is_empty() {
+            return s2.clone();
+        } else if (!pNEW_INFO_OPT) {
+            todo!()
+        } else {
+            let f = |y: &TripleList<G, S, P>| {
+                let pre = Self::pre_exist(dir, m, y, required_states);
+                Self::triples_union(s2, &Self::triples_conj(s1, &pre))
+            };
+            setfix(f, s2)
+        }
+    }
+
+    fn satEG(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s1: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        let f = |y: &TripleList<G, S, P>| {
+            let pre = Self::pre_exist(dir, m, y, reqst);
+            Self::triples_conj(y, &pre)
+        };
+        setgfix(f, s1)
+    }
+
+    fn sat_label(
         label: impl Fn(P::ty) -> TripleList<G, S, P>,
-        required: Vec<Vec<SubstitutionList<S>>>,
+        required: &Vec<Vec<SubstitutionList<S>>>,
         p: P::ty,
     ) -> TripleList<G, S, P> {
-        let triples =
-            if !pSATLEBEL_MEMO_OPT { todo!() } else { CTL_ENGINE::<G, S, P>::setify(label(p)) };
+        let triples = if !pSATLEBEL_MEMO_OPT { todo!() } else { Self::setify(&label(p)) };
         let ntriples = normalize(triples);
         if !pREQUIRED_ENV_OPT {
             todo!();
@@ -842,91 +1185,794 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         ntriples
     }
 
+    fn get_reachable(
+        &mut self,
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        required_states: &Option<Vec<G::Node>>,
+    ) -> Option<NodeList<G>> {
+        match required_states {
+            None => None,
+            Some(states) => Some(states.iter().fold(vec![], |rest: Vec<_>, curr| {
+                if rest.contains(curr) {
+                    rest
+                } else {
+                    set_union(
+                        &match self.reachable_table.get(&(curr.clone(), *dir)) {
+                            None => {
+                                let states = Self::reachsatEF(&self, dir, m, &vec![curr.clone()]);
+                                self.reachable_table.insert((*curr, *dir), states.clone());
+                                states
+                            }
+                            Some(s) => s.clone(),
+                        },
+                        &rest,
+                    )
+                }
+            })),
+        }
+    }
+
+    fn satAF(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        if !pNEW_INFO_OPT {
+            todo!()
+        } else {
+            let f = |y: &TripleList<G, S, P>| {
+                let pre = Self::pre_forall(dir, m, y, y, reqst);
+                Self::triples_union(&s, &pre)
+            };
+            return setfix(f, s);
+        }
+    }
+
+    fn satAW(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s1: &TripleList<G, S, P>,
+        s2: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        if s1.is_empty() {
+            s2.clone()
+        } else {
+            let f = |y: &TripleList<G, S, P>| {
+                let pre = Self::pre_forall(dir, m, y, y, reqst);
+                let conj = Self::triples_conj(s1, &pre);
+                Self::triples_conj(s2, &conj)
+            };
+            let drop_wits = |y: &TripleList<G, S, P>| {
+                y.iter().map(|(s, e, _)| (s.clone(), e.clone(), vec![])).collect_vec()
+            };
+            setgfix(f, &Self::triples_union(&nub(&drop_wits(s1)), s2))
+        }
+    }
+
+    fn satAG(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        let f = |y: &TripleList<G, S, P>| {
+            let pre = Self::pre_forall(dir, m, y, y, reqst);
+            Self::triples_conj(y, &pre)
+        };
+        setgfix(f, s)
+    }
+
+    fn satEF(
+        dir: &Direction,
+        m: &Model<G, S, P>,
+        s2: &TripleList<G, S, P>,
+        reqst: &Option<NodeList<G>>,
+    ) -> TripleList<G, S, P> {
+        if !pNEW_INFO_OPT {
+            todo!()
+        } else {
+            let f = |y: &TripleList<G, S, P>| {
+                let pre = Self::pre_exist(dir, m, y, reqst);
+                Self::triples_union(s2, &pre)
+            };
+            return setfix(f, &s2);
+        }
+    }
+
     fn sat_verbose_loop<D>(
+        &mut self,
         unchecked: bool,
-        required: Vec<Vec<SubstitutionList<S>>>,
-        required_states: Option<Vec<G::Node>>,
-        annot: impl Fn(isize, GenericCtl<P::ty, S::Mvar, ()>, TripleList<G, S, P>, Vec<D>) -> D,
+        required: &Vec<Vec<SubstitutionList<S>>>,
+        required_states: &Option<Vec<G::Node>>,
+        annot: fn(
+            isize,
+            // &GenericCtl<P::ty, S::Mvar, Vec<String>>,
+            &TripleList<G, S, P>,
+            Vec<D>,
+        ) -> D,
         maxlvl: isize,
         lvl: isize,
-        m: (&G::Cfg, impl Fn(P::ty) -> TripleList<G, S, P>, Vec<G::Node>),
-        phi: GenericCtl<P::ty, S::Mvar, ()>,
-        env: Vec<()>,
+        m: &Model<G, S, P>,
+        phi: GenericCtl<P::ty, S::Mvar, Vec<String>>,
+        env: &Vec<(String, TripleList<G, S, P>)>,
     ) -> (D, TripleList<G, S, P>) {
-        let states = m.2.clone();
+        let states = &m.3;
         let label = m.1;
-        let satv = |unchecked, required, required_states, phi0, env| {
-            CTL_ENGINE::<G, S, P>::sat_verbose_loop(
-                unchecked,
-                required,
-                required_states,
-                annot,
-                maxlvl,
-                lvl + 1,
-                m,
-                phi0,
-                env,
-            )
-        };
+
+        macro_rules! satv {
+            ($unchecked:expr, $required:expr, $required_states:expr, $phi:expr, $env:expr) => {
+                self.sat_verbose_loop(
+                    $unchecked,
+                    $required,
+                    $required_states,
+                    annot,
+                    maxlvl,
+                    lvl + 1,
+                    m,
+                    $phi,
+                    $env,
+                )
+            };
+        }
+
+        // let satv = &mut |unchecked,
+        //                  required: &Vec<Vec<SubstitutionList<S>>>,
+        //                  required_states: &Option<NodeList<G>>,
+        //                  phi0: GenericCtl<P::ty, S::Mvar, Vec<String>>,
+        //                  env: &Vec<(String, TripleList<G, S, P>)>| {
+        //     self.sat_verbose_loop(
+        //         unchecked,
+        //         required,
+        //         required_states,
+        //         annot,
+        //         maxlvl,
+        //         lvl + 1,
+        //         m,
+        //         phi0,
+        //         env
+        //     )
+        // };
 
         let anno = |res: Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>,
                     children| {
-            let r = res.iter().clone().collect_vec();
-            (annot(lvl, phi, res, children), r)
+            // let r = res.iter().clone().collect_vec();
+            (annot(lvl, &res, children), res)
         };
 
         if lvl > maxlvl && maxlvl > -1 {
+            unimplemented!();
         } else {
-            // let (d, res) =
-            match phi {
+            let (child, res) = match phi {
                 GenericCtl::False => anno(vec![], vec![]),
-                GenericCtl::True => anno(CTL_ENGINE::<G, S, P>::triples_top(&states), vec![]),
-                GenericCtl::Pred(p) => {
-                    anno(CTL_ENGINE::<G, S, P>::satLabel(label, required, p), vec![])
-                }
+                GenericCtl::True => anno(Self::triples_top(&states), vec![]),
+                GenericCtl::Pred(p) => anno(Self::sat_label(label, required, p), vec![]),
                 GenericCtl::Not(phi1) => {
-                    let (child1, res1) = satv(unchecked, required, required_states, *phi1, env);
-                    anno(CTL_ENGINE::<G, S, P>::triples_complement(&states, res1), vec![child1])
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    anno(
+                        Self::triples_complement(&mkstates(&states, &required_states), &res1),
+                        vec![child1],
+                    )
                 }
-                GenericCtl::Exists(keep, v, phi) => {}
-                GenericCtl::And(_, _) => {}
-                GenericCtl::AndAny(_, _, _, _) => {}
-                GenericCtl::HackForStmt(_, _, _, _) => {}
-                GenericCtl::Or(_, _) => {}
-                GenericCtl::Implies(_, _) => {}
-                GenericCtl::AF(_, _, _) => {}
-                GenericCtl::AX(_, _, _) => {}
-                GenericCtl::AG(_, _, _) => {}
-                GenericCtl::AW(_, _, _, _) => {}
-                GenericCtl::AU(_, _, _, _) => {}
-                GenericCtl::EF(_, _) => {}
-                GenericCtl::EX(_, _) => {}
-                GenericCtl::EG(_, _) => {}
-                GenericCtl::EU(_, _, _) => {}
-                GenericCtl::Let(_, _, _) => {}
-                GenericCtl::LetR(_, _, _) => {}
-                GenericCtl::Ref(_) => {}
-                GenericCtl::SeqOr(_, _) => {}
-                GenericCtl::Uncheck(_) => {}
-                GenericCtl::InnerAnd(_) => {}
-                GenericCtl::XX(_, _) => {}
+                GenericCtl::Exists(keep, v, phi) => {
+                    let new_required = required;
+                    let (child, res) = self.sat_verbose_loop(
+                        unchecked,
+                        new_required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi,
+                        env,
+                    );
+                    anno(Self::triples_witness(&v, unchecked, !keep, &res), vec![child])
+                }
+                GenericCtl::And(strict, (phi1, phi2)) => {
+                    let pm = !false; //PARTIAL_MATC
+                    match (
+                        pm,
+                        self.sat_verbose_loop(
+                            unchecked,
+                            required,
+                            required_states,
+                            annot,
+                            maxlvl,
+                            lvl + 1,
+                            m,
+                            *phi1,
+                            env,
+                        ),
+                    ) {
+                        (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
+                        (_, (child1, res1)) => {
+                            let new_required = Self::extend_required(&res1, &required);
+                            let new_required_states = Self::get_required_states(&res1);
+                            match (
+                                pm,
+                                self.sat_verbose_loop(
+                                    unchecked,
+                                    &new_required,
+                                    &new_required_states,
+                                    annot,
+                                    maxlvl,
+                                    lvl + 1,
+                                    m,
+                                    *phi2,
+                                    env,
+                                ),
+                            ) {
+                                (false, (child2, res)) if res.is_empty() => {
+                                    anno(vec![], vec![child1, child2])
+                                }
+                                (_, (child2, res2)) => {
+                                    let res = Self::strict_triples_conj(
+                                        strict,
+                                        mkstates(&states, &required_states),
+                                        &res1,
+                                        &res2,
+                                    );
+                                    anno(res, vec![child1, child2])
+                                }
+                            }
+                        }
+                    }
+                }
+                GenericCtl::AndAny(dir, strict, phi1, phi2) => {
+                    let pm = !PARTIAL_MATCH;
+                    match (
+                        pm,
+                        self.sat_verbose_loop(
+                            unchecked,
+                            required,
+                            required_states,
+                            annot,
+                            maxlvl,
+                            lvl + 1,
+                            m,
+                            *phi1,
+                            env,
+                        ),
+                    ) {
+                        (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
+                        (_, (child1, res1)) => {
+                            let new_required = Self::extend_required(&res1, &required);
+                            let new_required_states = Self::get_required_states(&res1);
+                            let new_required_states =
+                                Self::get_reachable(self, &dir, m, &new_required_states);
+                            match (
+                                pm,
+                                //self.sat_verbose_loop(unchecked, &new_required, &new_required_states, annot, maxlvl, lvl+1, m, *phi2, env)
+                                self.sat_verbose_loop(
+                                    unchecked,
+                                    &new_required,
+                                    &new_required_states,
+                                    annot,
+                                    maxlvl,
+                                    lvl + 1,
+                                    m,
+                                    *phi2,
+                                    env,
+                                ),
+                            ) {
+                                (false, (child2, res)) if res.is_empty() => {
+                                    anno(res1, vec![child1, child2])
+                                }
+                                (_, (child2, res2)) => match res1.as_slice() {
+                                    [] => {
+                                        if res2.is_empty() {
+                                            anno(vec![], vec![child1, child2])
+                                        } else {
+                                            let res =
+                                                res2[1..].iter().fold(vec![res2[0].clone()], |a, b| {
+                                                    let s = mkstates(&states, &required_states);
+                                                    Self::strict_triples_conj(
+                                                        strict,
+                                                        s,
+                                                        &a,
+                                                        &vec![b.clone()],
+                                                    )
+                                                });
+                                            anno(res, vec![child1, child2])
+                                        }
+                                    }
+                                    [(state, _, _)] => {
+                                        let reachable_states = new_required_states.expect(
+                                            "AndAny makes no sense with no reachable states",
+                                        );
+                                        let mut res2_tbl = HashMap::new();
+                                        res2.iter().for_each(|(s1, e, w)| {
+                                            hash_notest(
+                                                &mut res2_tbl,
+                                                *s1,
+                                                (*state, e.clone(), w.clone()),
+                                            );
+                                        });
+                                        let s = mkstates(&states, &required_states);
+                                        let res = reachable_states.iter().fold(res1, |a, st| {
+                                            let b = res2_tbl.get(st);
+                                            match b {
+                                                Some(b) => {
+                                                    Self::strict_triples_conj(strict, s.clone(), &a, b)
+                                                }
+                                                None => a,
+                                            }
+                                        });
+                                        anno(res, vec![child1, child2])
+                                    }
+                                    _ => {
+                                        panic!("only one result allowed for the left arg of AndAny")
+                                    }
+                                },
+                            }
+                        }
+                    }
+                }
+                GenericCtl::HackForStmt(_, _, _, _) => {
+                    panic!("should not be called")
+                }
+                GenericCtl::Or(phi1, phi2) => {
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    let (child2, res2) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi2,
+                        env,
+                    );
+                    anno(Self::triples_union(&res1, &res2), vec![child1, child2])
+                }
+                GenericCtl::Implies(phi1, phi2) => self.sat_verbose_loop(
+                    unchecked,
+                    required,
+                    required_states,
+                    annot,
+                    maxlvl,
+                    lvl + 1,
+                    m,
+                    C![Or, C![Not, *phi1], *phi2],
+                    env,
+                ),
+                GenericCtl::AF(dir, strict, phi1) => {
+                    if !LOOP_IN_SRC_MODE {
+                        return satv!(
+                            unchecked,
+                            required,
+                            required_states,
+                            C![AU, dir, strict, C![True], *phi1],
+                            env
+                        );
+                    } else {
+                        let new_required_states = self.get_reachable(&dir, m, &required_states);
+                        let (child, res) = self.sat_verbose_loop(
+                            unchecked,
+                            required,
+                            &new_required_states,
+                            annot,
+                            maxlvl,
+                            lvl + 1,
+                            m,
+                            *phi1,
+                            env,
+                        );
+                        let res = Self::strict_a1(
+                            strict,
+                            Self::satAF,
+                            Self::satEF,
+                            &dir,
+                            m,
+                            &res,
+                            &new_required_states,
+                        );
+                        anno(res, vec![child])
+                    }
+                }
+                GenericCtl::AX(dir, strict, phi1) => {
+                    let new_required_states =
+                        Self::get_children_required_states(&dir, m, &required_states);
+                    let (child, res) = self.sat_verbose_loop(
+                        unchecked,
+                        &required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    let res = Self::strict_a1(
+                        strict,
+                        Self::satAX,
+                        Self::satEX,
+                        &dir,
+                        m,
+                        &res,
+                        &required_states,
+                    );
+                    anno(res, vec![child])
+                }
+                GenericCtl::AG(dir, strict, phi1) => {
+                    let new_required_states = self.get_reachable(&dir, m, required_states);
+                    let (child, res) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    let res = Self::strict_a1(
+                        strict,
+                        Self::satAG,
+                        Self::satEF,
+                        &dir,
+                        m,
+                        &res,
+                        &new_required_states,
+                    );
+                    anno(res, vec![child])
+                }
+                GenericCtl::AW(_, _, _, _) => {
+                    panic!("Should not be used")
+                }
+                GenericCtl::AU(dir, strict, phi1, phi2) => {
+                    let new_required_states = self.get_reachable(&dir, m, required_states);
+                    match self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi2,
+                        env,
+                    ) {
+                        (child2, v) if v.is_empty() => anno(vec![], vec![child2]),
+                        (child2, s2) => {
+                            let new_required = Self::extend_required(&s2, &required);
+                            let (child1, s1) = self.sat_verbose_loop(
+                                unchecked,
+                                &new_required,
+                                &new_required_states,
+                                annot,
+                                maxlvl,
+                                lvl + 1,
+                                m,
+                                *phi1,
+                                env,
+                            );
+                            let res = Self::strict_A2au(
+                                strict,
+                                Self::satAU,
+                                Self::satEF,
+                                &dir,
+                                m,
+                                &s1,
+                                &s2,
+                                &new_required_states,
+                            );
+                            match res {
+                                Auok::Auok(res) => anno(res, vec![child1, child2]),
+                                Auok::AuFailed(tmp_res) => {
+                                    let s1 = Self::triples_conj(
+                                        &Self::satEU(&dir, m, &s1, &tmp_res, &new_required_states),
+                                        &s1,
+                                    );
+                                    let res = Self::strict_A2(
+                                        strict,
+                                        Self::satAW,
+                                        Self::satEF,
+                                        &dir,
+                                        m,
+                                        &s1,
+                                        &s2,
+                                        &new_required_states,
+                                    );
+                                    anno(res, vec![child1, child2])
+                                }
+                            }
+                        }
+                    }
+                }
+                GenericCtl::EF(dir, phi1) => {
+                    let new_required_states = self.get_reachable(&dir, m, required_states);
+                    let (child, res) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    anno(Self::satEF(&dir, m, &res, &new_required_states), vec![child])
+                }
+                GenericCtl::EX(dir, phi) => {
+                    let new_required_states =
+                        Self::get_children_required_states(&dir, m, required_states);
+                    let (child, res) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi,
+                        env,
+                    );
+                    anno(Self::satEX(&dir, m, &res, &required_states), vec![child])
+                }
+                GenericCtl::EG(dir, phi1) => {
+                    let new_required_states = self.get_reachable(&dir, m, required_states);
+                    let (child, res) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    anno(Self::satEG(&dir, m, &res, &new_required_states), vec![child])
+                }
+                GenericCtl::EU(dir, phi1, phi2) => {
+                    let new_required_states = self.get_reachable(&dir, m, required_states);
+                    match (self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi2,
+                        env,
+                    )) {
+                        (child2, v) if v.is_empty() => anno(vec![], vec![child2]),
+                        (child2, res2) => {
+                            let new_required = Self::extend_required(&res2, required);
+                            let (child1, res1) = self.sat_verbose_loop(
+                                unchecked,
+                                &new_required,
+                                &new_required_states,
+                                annot,
+                                maxlvl,
+                                lvl + 1,
+                                m,
+                                *phi1,
+                                env,
+                            );
+                            anno(
+                                Self::satEU(&dir, m, &res1, &res2, &new_required_states),
+                                vec![child1, child2],
+                            )
+                        }
+                    }
+                }
+                GenericCtl::Let(v, phi1, phi2) => {
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    let mut q = vec![(v, res1)];
+                    q.extend(env.clone());
+                    let (child2, res2) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi2,
+                        &q,
+                    );
+                    anno(res2, vec![child1, child2])
+                }
+                GenericCtl::LetR(dir, v, phi1, phi2) => {
+                    let new_required_states = self.get_reachable(&dir, m, required_states);
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        &new_required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    let mut q = vec![(v, res1)];
+                    q.extend(env.clone());
+                    let (child2, res2) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi2,
+                        &q,
+                    );
+                    anno(res2, vec![child1, child2])
+                }
+                GenericCtl::Ref(v) => {
+                    let res = &env.iter().find(|(v1, res)| &v == v1).unwrap().1;
+                    let res = if unchecked {
+                        res.into_iter().map(|(s, th, _)| (s.clone(), th.clone(), vec![])).collect_vec()
+                    } else {
+                        res.clone()
+                    };
+                    anno(res, vec![])
+                }
+                GenericCtl::SeqOr(phi1, phi2) => {
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    let (child2, res2) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi2,
+                        env,
+                    );
+
+                    let res1neg = res1.clone().into_iter().map(|(s, th, _)| (s, th, vec![])).collect_vec();
+                    let pm = !PARTIAL_MATCH;
+                    match (pm, &res1, &res2) {
+                        (false, res1r, res2r) if res2.is_empty() => anno(res1, vec![child1, child2]),
+                        (false, res1r, res2r) if res1.is_empty() => anno(res2, vec![child1, child2]),
+                        _ => anno(
+                            Self::triples_union(
+                                &res1,
+                                &Self::triples_conj(
+                                    &Self::triples_complement(
+                                        &mkstates(&states, required_states),
+                                        &res1neg,
+                                    ),
+                                    &res2,
+                                ),
+                            ),
+                            vec![child1, child2],
+                        ),
+                    }
+                }
+                GenericCtl::Uncheck(phi1) => {
+                    let unchecked = !pREQUIRED_ENV_OPT;
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    anno(res1, vec![child1])
+                }
+                GenericCtl::InnerAnd(phi1) => {
+                    let (child1, res1) = self.sat_verbose_loop(
+                        unchecked,
+                        required,
+                        required_states,
+                        annot,
+                        maxlvl,
+                        lvl + 1,
+                        m,
+                        *phi1,
+                        env,
+                    );
+                    anno(res1, vec![child1])
+                }
+                GenericCtl::XX(_, _) => {
+                    unimplemented!()
+                }
             };
+            let res1 = Self::drop_wits(required_states, &res);
+            return (child, res1);
         }
-        return vec![];
     }
 
     fn filter_partial_matches() {}
 
+    fn preprocess(cfg: &G::Cfg, preproc: fn(&P::ty) -> bool, res: Vec<Vec<P::ty>>) -> bool {
+        return true;
+        // if res.is_empty() {
+        //     true
+        // }
+        // else {
+        //     let l = res;
+        //     let sz: usize = G::size(cfg);
+        //     let get_any = |verbose, x| {
+        //         let res = preproc(x);
+        //         res
+        //     };
+        //     let get_all = |l: &Vec<P::ty>| if l.len()  > sz-2 {false} else {
+        //         // l.iter().all(|x| get_any(false, x))
+        //     };
+        //     if l.iter().any(|x| get_all(x)) { true }
+        //     else {
+        //         false
+        //     }
+        // }
+        
+    }
+
     pub fn sat(
         &mut self,
-        cfg: &G::Cfg,
-        lab: impl Fn(P::ty) -> Vec<(P::ty, SubstitutionList<S>)>,
-        mut nodes: Vec<G::Node>,
-        phi: GenericCtl<P::ty, S::Mvar, ()>,
+        m: &Model<G, S, P>,
+        // lab: impl Fn(P::ty) -> Vec<(P::ty, SubstitutionList<S>)>,
+        // mut nodes: Vec<G::Node>,
+        phi: GenericCtl<P::ty, S::Mvar, Vec<String>>,
+        reqopt: Vec<Vec<P::ty>>
     ) {
-        if nodes.iter().any(|x| G::extract_is_loop(cfg, x)) {
-            self.has_loop = true;
+        self.reachable_table.clear();
+        self.memo_label.clear();
+
+        let (x, label, preproc, states) = m;
+        if Self::preprocess(x, *preproc, reqopt) {
+            if states.iter().any(|node| G::extract_is_loop(x, node)) {
+
+            }
         }
-        nodes.sort();
     }
 }
