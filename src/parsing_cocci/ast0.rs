@@ -13,7 +13,7 @@ use ra_ide_db::line_index::{LineCol, LineIndex};
 use ra_parser::SyntaxKind;
 use ra_syntax::{SourceFile, SyntaxElement, SyntaxNode};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 /// Semantic Path Node
 pub struct Snode {
     pub wrapper: Wrap,
@@ -21,6 +21,18 @@ pub struct Snode {
     pub asttoken: Option<SyntaxElement>,
     kind: SyntaxKind,
     pub children: Vec<Snode>,
+}
+
+impl PartialOrd for Snode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.getstring().partial_cmp(&other.getstring())
+    }
+}
+
+impl Ord for Snode {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.getstring().cmp(&other.getstring())
+    }
 }
 
 impl Hash for Snode {
@@ -274,7 +286,7 @@ pub struct MetavarName {
     pub varname: String,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Dummy {}
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -292,7 +304,7 @@ pub struct TokenInfo {
     right_offset: usize,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PositionInfo {
     pub line_start: usize,
     pub line_end: usize,
@@ -339,7 +351,7 @@ impl PositionInfo {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Info {
     pub pos_info: PositionInfo,
     attachable_start: bool,
@@ -378,7 +390,7 @@ pub enum KeepBinding {
 
 type Minfo = (MetavarName, KeepBinding, bool); //rulename, metavar name, keepbinding, is_inherited
 
-#[derive(Clone, Hash, Debug, PartialEq)]
+#[derive(Clone, Hash, Debug, PartialEq, Eq)]
 pub enum Mcodekind {
     Minus(Vec<Snode>), //Argument is the replacement
     Plus,
@@ -652,7 +664,7 @@ impl MetavarType {
     }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Wrap {
     pub info: Info,
     index: usize,

@@ -22,11 +22,11 @@ static pREQUIRED_ENV_OPT: bool = true;
 static pUNCHECKED_OPT: bool = true;
 static pREQUIRED_STATES_OPT: bool = true;
 
-type Substitution<Mvar: Eq, Value: Clone + Eq> = ctl_ast::GenericSubst<Mvar, Value>;
-type SubstitutionList<S: Subs> = Vec<Substitution<S::Mvar, S::Value>>;
-type Witness<State, Anno, Value> = ctl_ast::GenericWitnessTree<State, Anno, Value>;
-type CTL<S: Subs, P: Pred> = Vec<GenericCtl<P::ty, S::Mvar, Vec<String>>>;
-type WitnessTree<G: Graph, S: Subs, P: Pred> =
+pub type Substitution<Mvar: Eq, Value: Clone + Eq> = ctl_ast::GenericSubst<Mvar, Value>;
+pub type SubstitutionList<S: Subs> = Vec<Substitution<S::Mvar, S::Value>>;
+pub type Witness<State, Anno, Value> = ctl_ast::GenericWitnessTree<State, Anno, Value>;
+pub type CTL<S: Subs, P: Pred> = Vec<GenericCtl<P::ty, S::Mvar, Vec<String>>>;
+pub type WitnessTree<G: Graph, S: Subs, P: Pred> =
     GenericWitnessTree<G::Node, SubstitutionList<S>, Vec<CTL<S, P>>>;
 
 type NodeList<G: Graph> = Vec<G::Node>;
@@ -34,13 +34,14 @@ type NodeList<G: Graph> = Vec<G::Node>;
 type Triple<G: Graph, S: Subs, P: Pred> = (G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>);
 type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
 
-type Model<G: Graph, S: Subs, P: Pred> = (G::Cfg, fn(P::ty) -> TripleList<G, S, P>, fn(&P::ty) -> bool, NodeList<G>);
+type Model<G: Graph, S: Subs, P: Pred> =
+    (G::Cfg, fn(P::ty) -> TripleList<G, S, P>, fn(&P::ty) -> bool, NodeList<G>);
 enum Auok<G: Graph, S: Subs, P: Pred> {
     Auok(TripleList<G, S, P>),
     AuFailed(TripleList<G, S, P>),
 }
 
-trait Graph {
+pub trait Graph {
     type Cfg;
     type Node: PartialEq + Ord + Clone + Hash + Copy;
 
@@ -55,7 +56,7 @@ trait Graph {
     fn size(cfg: &Self::Cfg) -> usize;
 }
 
-trait Subs {
+pub trait Subs {
     type Value: Clone + PartialEq + Eq + Ord;
     type Mvar: Clone + PartialEq + Eq + Ord;
 
@@ -63,7 +64,7 @@ trait Subs {
     fn merge_val(a: &Self::Value, b: &Self::Value) -> Self::Value;
 }
 
-trait Pred {
+pub trait Pred {
     type ty: Clone + Eq + Ord;
 }
 
@@ -1350,17 +1351,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 GenericCtl::True => anno(Self::triples_top(&states), vec![]),
                 GenericCtl::Pred(p) => anno(Self::sat_label(label, required, p), vec![]),
                 GenericCtl::Not(phi1) => {
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
                     anno(
                         Self::triples_complement(&mkstates(&states, &required_states), &res1),
                         vec![child1],
@@ -1368,52 +1359,19 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::Exists(keep, v, phi) => {
                     let new_required = required;
-                    let (child, res) = self.sat_verbose_loop(
-                        unchecked,
-                        new_required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi,
-                        env,
-                    );
+                    let (child, res) = satv!(unchecked, new_required, required_states, *phi, env);
                     anno(Self::triples_witness(&v, unchecked, !keep, &res), vec![child])
                 }
                 GenericCtl::And(strict, (phi1, phi2)) => {
-                    let pm = !false; //PARTIAL_MATC
-                    match (
-                        pm,
-                        self.sat_verbose_loop(
-                            unchecked,
-                            required,
-                            required_states,
-                            annot,
-                            maxlvl,
-                            lvl + 1,
-                            m,
-                            *phi1,
-                            env,
-                        ),
-                    ) {
+                    let pm = !false; //PARTIAL_MATCH
+                    match (pm, satv!(unchecked, required, required_states, *phi1, env)) {
                         (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
                         (_, (child1, res1)) => {
                             let new_required = Self::extend_required(&res1, &required);
                             let new_required_states = Self::get_required_states(&res1);
                             match (
                                 pm,
-                                self.sat_verbose_loop(
-                                    unchecked,
-                                    &new_required,
-                                    &new_required_states,
-                                    annot,
-                                    maxlvl,
-                                    lvl + 1,
-                                    m,
-                                    *phi2,
-                                    env,
-                                ),
+                                satv!(unchecked, &new_required, &new_required_states, *phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
                                     anno(vec![], vec![child1, child2])
@@ -1433,20 +1391,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::AndAny(dir, strict, phi1, phi2) => {
                     let pm = !PARTIAL_MATCH;
-                    match (
-                        pm,
-                        self.sat_verbose_loop(
-                            unchecked,
-                            required,
-                            required_states,
-                            annot,
-                            maxlvl,
-                            lvl + 1,
-                            m,
-                            *phi1,
-                            env,
-                        ),
-                    ) {
+                    match (pm, satv!(unchecked, required, required_states, *phi1, env)) {
                         (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
                         (_, (child1, res1)) => {
                             let new_required = Self::extend_required(&res1, &required);
@@ -1456,17 +1401,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                             match (
                                 pm,
                                 //self.sat_verbose_loop(unchecked, &new_required, &new_required_states, annot, maxlvl, lvl+1, m, *phi2, env)
-                                self.sat_verbose_loop(
-                                    unchecked,
-                                    &new_required,
-                                    &new_required_states,
-                                    annot,
-                                    maxlvl,
-                                    lvl + 1,
-                                    m,
-                                    *phi2,
-                                    env,
-                                ),
+                                satv!(unchecked, &new_required, &new_required_states, *phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
                                     anno(res1, vec![child1, child2])
@@ -1476,8 +1411,9 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                                         if res2.is_empty() {
                                             anno(vec![], vec![child1, child2])
                                         } else {
-                                            let res =
-                                                res2[1..].iter().fold(vec![res2[0].clone()], |a, b| {
+                                            let res = res2[1..].iter().fold(
+                                                vec![res2[0].clone()],
+                                                |a, b| {
                                                     let s = mkstates(&states, &required_states);
                                                     Self::strict_triples_conj(
                                                         strict,
@@ -1485,7 +1421,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                                                         &a,
                                                         &vec![b.clone()],
                                                     )
-                                                });
+                                                },
+                                            );
                                             anno(res, vec![child1, child2])
                                         }
                                     }
@@ -1505,9 +1442,12 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                                         let res = reachable_states.iter().fold(res1, |a, st| {
                                             let b = res2_tbl.get(st);
                                             match b {
-                                                Some(b) => {
-                                                    Self::strict_triples_conj(strict, s.clone(), &a, b)
-                                                }
+                                                Some(b) => Self::strict_triples_conj(
+                                                    strict,
+                                                    s.clone(),
+                                                    &a,
+                                                    b,
+                                                ),
                                                 None => a,
                                             }
                                         });
@@ -1525,41 +1465,13 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     panic!("should not be called")
                 }
                 GenericCtl::Or(phi1, phi2) => {
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
-                    let (child2, res2) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi2,
-                        env,
-                    );
+                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
+                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, env);
                     anno(Self::triples_union(&res1, &res2), vec![child1, child2])
                 }
-                GenericCtl::Implies(phi1, phi2) => self.sat_verbose_loop(
-                    unchecked,
-                    required,
-                    required_states,
-                    annot,
-                    maxlvl,
-                    lvl + 1,
-                    m,
-                    C![Or, C![Not, *phi1], *phi2],
-                    env,
-                ),
+                GenericCtl::Implies(phi1, phi2) => {
+                    satv!(unchecked, required, required_states, C![Or, C![Not, *phi1], *phi2], env)
+                }
                 GenericCtl::AF(dir, strict, phi1) => {
                     if !LOOP_IN_SRC_MODE {
                         return satv!(
@@ -1571,17 +1483,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                         );
                     } else {
                         let new_required_states = self.get_reachable(&dir, m, &required_states);
-                        let (child, res) = self.sat_verbose_loop(
-                            unchecked,
-                            required,
-                            &new_required_states,
-                            annot,
-                            maxlvl,
-                            lvl + 1,
-                            m,
-                            *phi1,
-                            env,
-                        );
+                        let (child, res) =
+                            satv!(unchecked, required, &new_required_states, *phi1, env);
                         let res = Self::strict_a1(
                             strict,
                             Self::satAF,
@@ -1597,17 +1500,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 GenericCtl::AX(dir, strict, phi1) => {
                     let new_required_states =
                         Self::get_children_required_states(&dir, m, &required_states);
-                    let (child, res) = self.sat_verbose_loop(
-                        unchecked,
-                        &required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child, res) =
+                        satv!(unchecked, &required, &new_required_states, *phi1, env);
                     let res = Self::strict_a1(
                         strict,
                         Self::satAX,
@@ -1621,17 +1515,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::AG(dir, strict, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child, res) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi1, env);
                     let res = Self::strict_a1(
                         strict,
                         Self::satAG,
@@ -1648,31 +1532,12 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::AU(dir, strict, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    match self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi2,
-                        env,
-                    ) {
+                    match satv!(unchecked, required, &new_required_states, *phi2, env) {
                         (child2, v) if v.is_empty() => anno(vec![], vec![child2]),
                         (child2, s2) => {
                             let new_required = Self::extend_required(&s2, &required);
-                            let (child1, s1) = self.sat_verbose_loop(
-                                unchecked,
-                                &new_required,
-                                &new_required_states,
-                                annot,
-                                maxlvl,
-                                lvl + 1,
-                                m,
-                                *phi1,
-                                env,
-                            );
+                            let (child1, s1) =
+                                satv!(unchecked, &new_required, &new_required_states, *phi1, env);
                             let res = Self::strict_A2au(
                                 strict,
                                 Self::satAU,
@@ -1708,77 +1573,28 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::EF(dir, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child, res) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi1, env);
                     anno(Self::satEF(&dir, m, &res, &new_required_states), vec![child])
                 }
                 GenericCtl::EX(dir, phi) => {
                     let new_required_states =
                         Self::get_children_required_states(&dir, m, required_states);
-                    let (child, res) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi,
-                        env,
-                    );
+                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi, env);
                     anno(Self::satEX(&dir, m, &res, &required_states), vec![child])
                 }
                 GenericCtl::EG(dir, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child, res) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi1, env);
                     anno(Self::satEG(&dir, m, &res, &new_required_states), vec![child])
                 }
                 GenericCtl::EU(dir, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    match (self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi2,
-                        env,
-                    )) {
+                    match (satv!(unchecked, required, &new_required_states, *phi2, env)) {
                         (child2, v) if v.is_empty() => anno(vec![], vec![child2]),
                         (child2, res2) => {
                             let new_required = Self::extend_required(&res2, required);
-                            let (child1, res1) = self.sat_verbose_loop(
-                                unchecked,
-                                &new_required,
-                                &new_required_states,
-                                annot,
-                                maxlvl,
-                                lvl + 1,
-                                m,
-                                *phi1,
-                                env,
-                            );
+                            let (child1, res1) =
+                                satv!(unchecked, &new_required, &new_required_states, *phi1, env);
                             anno(
                                 Self::satEU(&dir, m, &res1, &res2, &new_required_states),
                                 vec![child1, child2],
@@ -1787,98 +1603,46 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     }
                 }
                 GenericCtl::Let(v, phi1, phi2) => {
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
                     let mut q = vec![(v, res1)];
                     q.extend(env.clone());
-                    let (child2, res2) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi2,
-                        &q,
-                    );
+                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, &q);
                     anno(res2, vec![child1, child2])
                 }
                 GenericCtl::LetR(dir, v, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        &new_required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child1, res1) =
+                        satv!(unchecked, required, &new_required_states, *phi1, env);
                     let mut q = vec![(v, res1)];
                     q.extend(env.clone());
-                    let (child2, res2) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi2,
-                        &q,
-                    );
+                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, &q);
                     anno(res2, vec![child1, child2])
                 }
                 GenericCtl::Ref(v) => {
                     let res = &env.iter().find(|(v1, res)| &v == v1).unwrap().1;
                     let res = if unchecked {
-                        res.into_iter().map(|(s, th, _)| (s.clone(), th.clone(), vec![])).collect_vec()
+                        res.into_iter()
+                            .map(|(s, th, _)| (s.clone(), th.clone(), vec![]))
+                            .collect_vec()
                     } else {
                         res.clone()
                     };
                     anno(res, vec![])
                 }
                 GenericCtl::SeqOr(phi1, phi2) => {
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
-                    let (child2, res2) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi2,
-                        env,
-                    );
+                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
+                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, env);
 
-                    let res1neg = res1.clone().into_iter().map(|(s, th, _)| (s, th, vec![])).collect_vec();
+                    let res1neg =
+                        res1.clone().into_iter().map(|(s, th, _)| (s, th, vec![])).collect_vec();
                     let pm = !PARTIAL_MATCH;
                     match (pm, &res1, &res2) {
-                        (false, res1r, res2r) if res2.is_empty() => anno(res1, vec![child1, child2]),
-                        (false, res1r, res2r) if res1.is_empty() => anno(res2, vec![child1, child2]),
+                        (false, _res1, res2) if res2.is_empty() => {
+                            anno(res1, vec![child1, child2])
+                        }
+                        (false, res1, _res2) if res1.is_empty() => {
+                            anno(res2, vec![child1, child2])
+                        }
                         _ => anno(
                             Self::triples_union(
                                 &res1,
@@ -1896,31 +1660,11 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::Uncheck(phi1) => {
                     let unchecked = !pREQUIRED_ENV_OPT;
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
                     anno(res1, vec![child1])
                 }
                 GenericCtl::InnerAnd(phi1) => {
-                    let (child1, res1) = self.sat_verbose_loop(
-                        unchecked,
-                        required,
-                        required_states,
-                        annot,
-                        maxlvl,
-                        lvl + 1,
-                        m,
-                        *phi1,
-                        env,
-                    );
+                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
                     anno(res1, vec![child1])
                 }
                 GenericCtl::XX(_, _) => {
@@ -1954,7 +1698,6 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         //         false
         //     }
         // }
-        
     }
 
     pub fn sat(
@@ -1963,16 +1706,14 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         // lab: impl Fn(P::ty) -> Vec<(P::ty, SubstitutionList<S>)>,
         // mut nodes: Vec<G::Node>,
         phi: GenericCtl<P::ty, S::Mvar, Vec<String>>,
-        reqopt: Vec<Vec<P::ty>>
+        reqopt: Vec<Vec<P::ty>>,
     ) {
         self.reachable_table.clear();
         self.memo_label.clear();
 
         let (x, label, preproc, states) = m;
         if Self::preprocess(x, *preproc, reqopt) {
-            if states.iter().any(|node| G::extract_is_loop(x, node)) {
-
-            }
+            if states.iter().any(|node| G::extract_is_loop(x, node)) {}
         }
     }
 }

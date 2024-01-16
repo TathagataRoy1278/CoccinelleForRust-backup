@@ -104,7 +104,7 @@ impl Wrap {
 pub struct Rnode {
     pub wrapper: Wrap,
     astnode: Option<SyntaxElement>, //Not SyntaxNode because we need to take
-    pub kind: SyntaxKind,
+    kind: SyntaxKind,
     //care of the whitespaces
     pub children: Vec<Rnode>,
 }

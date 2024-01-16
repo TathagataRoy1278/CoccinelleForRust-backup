@@ -13,7 +13,7 @@ use crate::{
         util::{getstmtlist, workrnode},
     },
     debugcocci,
-    engine::cocci_vs_rs::{visitrnode, MetavarBinding},
+    engine::cocci_vs_rs::{visitrnode_tmp, MetavarBinding},
     parsing_cocci::{
         ast0::{MetaVar, MetavarName, Snode},
         parse_cocci::Rule,
@@ -174,7 +174,7 @@ pub fn transformrnode(rules: &Vec<Rule>, rnode: Rnode) -> Result<Rnode, ParseErr
         for gbindings in expandedbindings {
             debugcocci!("For rule {}, inherited: {:#?}", rule.name, gbindings);
             let looper = Looper::new(tokenf);
-            let envs = visitrnode(&a.0, &transformedcode, &|k, l| {
+            let envs = visitrnode_tmp(&a.0, &transformedcode, &|k, l| {
                 looper.handledisjunctions(k, l, gbindings.iter().collect_vec())
             });
 

@@ -8,7 +8,7 @@ use ra_parser::SyntaxKind;
 use regex::Regex;
 
 use crate::{
-    commons::util::{get_pluses_back, get_pluses_front, getnrfrompt, getnrfrompt_r},
+    commons::util::{get_pluses_back, get_pluses_front, getnrfrompt, getnrfrompt_r, getstmtlist},
     debugcocci, fail,
     parsing_cocci::ast0::{Mcodekind, Pluses, Snode},
     parsing_cocci::ast0::{MetaVar, MetavarName},
@@ -139,6 +139,10 @@ fn addexplustoenv(b: &Rnode, pluses: Pluses, env: &mut Environment) {
 pub fn types_equal(ty1: &str, ty2: &str) -> bool {
     let pattern = Regex::new(ty1).unwrap();
     pattern.is_match(ty2)
+}
+
+fn tokenf(a: &Snode, b: &Rnode) -> Vec<MetavarBinding> {
+    return vec![];
 }
 
 pub struct Looper<'a> {
@@ -529,7 +533,7 @@ impl<'a, 'b> Looper<'a> {
     }
 }
 
-pub fn visitrnode<'a>(
+pub fn visitrnode_tmp<'a>(
     nodea: &Vec<Vec<Snode>>,
     nodeb: &'a Rnode,
     f: &dyn Fn(&Vec<Vec<Snode>>, &Vec<&'a Rnode>) -> (Vec<Environment>, bool),
@@ -545,10 +549,49 @@ pub fn visitrnode<'a>(
         }
 
         if let Some(child) = nodebchildren.next() {
+            environments.extend(visitrnode_tmp(nodea, child, f));
+        } else {
+            break;
+        }
+    }
+    return environments;
+}
+
+pub fn visitrnode<'a>(
+    nodea: &Vec<&Snode>,//Should be a statement list
+    nodeb: &'a Rnode,
+    f: &dyn Fn(&Vec<&Snode>, &Vec<&'a Rnode>) -> Environment,
+) -> Vec<Environment> {
+    let mut environments = vec![];
+    let nodebchildren = &mut nodeb.children.iter();
+
+    loop {
+        let tmp = f(nodea, &nodebchildren.clone().collect_vec()); //CLoning an Iter only clones the references inside
+
+        if !tmp.failed {
+            environments.push(tmp);
+        }
+
+        if let Some(child) = nodebchildren.next() {
             environments.extend(visitrnode(nodea, child, f));
         } else {
             break;
         }
     }
     return environments;
+}
+
+pub fn match_nodes(
+    nodea: &Snode,//This is a stmtlist
+    nodeb: &Rnode,
+    inherited_bindings: &Vec<MetavarBinding>
+) -> Vec<Environment> {
+    let nodeac = &getstmtlist(nodea).children.iter().collect_vec();
+    let looper = Looper::new(tokenf);
+    let mut ienv = Environment::new();
+    ienv.addbindings(&inherited_bindings.iter().collect_vec());
+    let envs = visitrnode(nodeac, nodeb, &mut |na, nb| {
+        looper.matchnodes(na, nb, ienv.clone(), true)
+    });
+    envs
 }
