@@ -1,7 +1,11 @@
-#[derive(Clone, Copy)]
+use std::hash::Hash;
+
+use itertools::Itertools;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EdgeIndex(usize);
-#[derive(Clone, Copy)]
-pub struct NodeIndex(usize);
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct NodeIndex(pub usize);
 
 impl NodeIndex {
     pub fn to_usize(&self) -> usize {
@@ -33,16 +37,29 @@ pub enum EdgeType {
 //     }
 // }
 
-pub struct NodeData<K> {
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct NodeData<K: Hash> {
     pub id: usize,
     data: K,
     first_out_edge: Option<EdgeIndex>,
     first_in_edge: Option<EdgeIndex>,
 }
 
-impl<K> NodeData<K> {
+impl<K: Hash> NodeData<K> {
     pub fn data(&self) -> &K {
         return &self.data;
+    }
+}
+
+impl<K: PartialEq + Eq + Hash> PartialOrd for NodeData<K> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.id.partial_cmp(&other.id)
+    }
+}
+
+impl<K: Eq + PartialEq + Hash> Ord for NodeData<K> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering{
+        self.id.cmp(&other.id)
     }
 }
 
@@ -68,14 +85,23 @@ impl EdgeData {
 }
 
 #[derive(Default)]
-pub struct Graph<K> {
+pub struct Graph<K: Hash> {
     pub nodes: Vec<NodeData<K>>,
     pub edges: Vec<EdgeData>,
 }
 
-impl<K> Graph<K> {
+impl<'a, K: Clone + Hash> Graph<K> {
     pub fn new() -> Graph<K> {
         return Graph { nodes: vec![], edges: vec![] };
+    }
+
+    pub fn node(&self, i: NodeIndex) -> NodeData<K> {
+        self.nodes[i.to_usize()].clone()
+    }
+
+    pub fn nodes(&'a self) -> Vec<NodeIndex> {
+        // self.nodes.clone().into_iter().collect_vec()
+        (0..self.nodes.len()-1).map(|x| NodeIndex(x)).collect_vec()
     }
 
     pub fn last_edge_index(&self, x: EdgeIndex) -> EdgeIndex {
@@ -172,6 +198,56 @@ impl<K> Graph<K> {
             liei = Some(EdgeIndex(nei));
 
             nei += 1;
+        }
+    }
+
+    pub fn successors(&'a self, source: NodeIndex) -> Vec<NodeIndex> {
+        let first_o_edge = self.nodes[source.to_usize()].first_out_edge;
+        let iter = EdgesIter {
+            graph: self,
+            current_edge_index: first_o_edge
+        };
+
+        let mut ret = vec![];
+        for i in iter {
+            ret.push(i);
+        }
+
+        return ret;
+    }
+
+    pub fn predecessors(&self, source: NodeIndex) -> Vec<NodeIndex> {
+        let first_i_edge = self.nodes[source.to_usize()].first_in_edge;
+        let iter = EdgesIter {
+            graph: self,
+            current_edge_index: first_i_edge
+        };
+
+        let mut ret = vec![];
+        for i in iter {
+            ret.push(i);
+        }
+
+        return ret;
+    }
+}
+
+pub struct EdgesIter<'graph, K: Hash> {
+    graph: &'graph Graph<K>,
+    current_edge_index: Option<EdgeIndex>
+}
+
+impl<'graph, K: Hash> Iterator for EdgesIter<'graph, K> {
+    type Item = NodeIndex;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.current_edge_index {
+            None => None,
+            Some(edge_num) => {
+                let edge = &self.graph.edges[edge_num.to_usize()];
+                self.current_edge_index = edge.next_edge;
+                Some(edge.target)
+            }
         }
     }
 }

@@ -1,50 +1,86 @@
-use std::marker::PhantomData;
-
 use itertools::Itertools;
-use ra_parser::SyntaxKind;
-use ra_syntax::ast::IfExpr;
 
-use crate::children_kind;
+use crate::commons::ograph_extended::{Graph, NodeIndex, EdgeType, NodeData};
+use crate::parsing_rs::ast_rs::Rnode;
 
-use super::ast_rs::Rnode;
+// enum Node1<'a> {
+//     TopNode,
+//     EndNode,
+//     Item(&'a Rnode), //For nodes under SourceFile
+//     //Each item should be disjoint
+//     SeqStart(&'a Rnode), // {
+//     SeqEnd(&'a Rnode),   // }
 
-type Tag = SyntaxKind;
+//     ExprStmt(&'a Rnode),
 
-pub struct Node<'a> {
-    rnode: &'a Rnode,
-}
-
-pub struct CFG<'a> {
-    pub next_nodes: Vec<CFG<'a>>,
-    pub prev_nodes: Vec<&'a CFG<'a>>, //Is Vec the best thing we can use for this?
-    pub rnode: Node<'a>,
-}
-
-// impl<'a> CFG<'a> {
-//     pub fn attach_node(&'a mut self, rnode: &'a Rnode) -> CFG<'a> {
-//         let mut cfg_node = build_cfg_aux(rnode);
-//         cfg_node.prev_nodes.push(&self);
-//     }
+//     IfHeader(&'a Rnode),
+//     Else(&'a Rnode),
+//     WhileHeader(&'a Rnode),
+//     ForHeader(&'a Rnode),
+//     LoopHeader(&'a Rnode),
+//     MatchHeader(&'a Rnode),
 // }
 
-fn build_cfg_aux<'a>(rnode: &'a Rnode, pkind: Option<SyntaxKind>) -> CFG<'a> {
-    let mut next_nodes = vec![];
-    let mut prev_nodes = vec![];
-    let cfg_node = CFG { next_nodes, prev_nodes, rnode: Node { rnode: rnode } };
-
-    match pkind {
-        Some(_) => {}
-        None => {}
-    }
-
-    return cfg_node;
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct NodeWrap<'a> {
+    rnode: &'a Rnode,
+    info: NodeInfo,
 }
 
-pub fn build_cfg<'a>(rnode: &'a Rnode) -> Vec<CFG<'a>> {
-    //assume that rnode is a sourcefile
-    assert!(rnode.kind() == Tag::SOURCE_FILE);
-    let cfgs = vec![];
-    for child in &rnode.children {}
+impl<'a> NodeWrap<'a> {
+    pub fn rnode(&self) -> &'a Rnode {
+        return self.rnode;
+    }
 
-    return cfgs;
+    pub fn info(&self) -> NodeInfo {
+        return self.info.clone();
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct NodeInfo {
+    labels: usize,
+    bclabels: Vec<usize>,
+    is_loop: bool,
+    is_fake: bool,
+}
+
+pub type Rflow<'a> = Graph<NodeWrap<'a>>;
+
+impl NodeInfo {
+    pub fn new(labels: usize) -> NodeInfo {
+        return NodeInfo { labels, bclabels: vec![], is_loop: false, is_fake: false };
+    }
+}
+
+pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) {
+    fn make_graph<'b, 'a: 'b>(graph: &'b mut Graph<NodeWrap<'a>>, rnodes: &'a Vec<Rnode>, label: usize) -> NodeIndex {
+        let mut node_indices = vec![];
+        for rnode in rnodes {
+            let label = label;
+            let info = NodeInfo::new(label);
+            let node = NodeWrap { rnode, info };
+
+            node_indices.push(graph.add_node(node));
+        }
+
+        let fni = node_indices[0];
+        for (ni, nni) in node_indices.into_iter().tuples() {
+            let node: &NodeData<NodeWrap<'a>> = graph.get_node(ni);
+            let nodew: &NodeWrap<'a> = node.data();
+            let rnode: &'a Rnode = nodew.rnode;
+            match rnode.kind() {
+                _ => {
+                    let cni = make_graph(graph, &rnode.children, label<<1);
+                    graph.add_edge(ni, cni, EdgeType::Children);
+                }
+            }
+            graph.add_edge(ni, nni, EdgeType::Default);
+        }
+
+        return fni;
+    }
+
+    let mut graph: Graph<NodeWrap<'a>> = Graph::new();
+    make_graph(&mut graph, rnodes, 0);
 }

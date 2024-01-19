@@ -8,12 +8,12 @@ use std::iter;
 use std::marker::PhantomData;
 use std::{cmp::Ordering, os::linux::raw::stat};
 
+use crate::engine::cocci_vs_rs::MetavarBinding;
 use crate::{commons::info::Unknown, commons::util, ctl::ctl_ast, C};
 
-use super::flag_ctl::LOOP_IN_SRC_MODE;
+
 use super::{
     ctl_ast::{GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict},
-    flag_ctl::PARTIAL_MATCH,
 };
 
 static pNEW_INFO_OPT: bool = true;
@@ -21,6 +21,17 @@ static pSATLEBEL_MEMO_OPT: bool = true;
 static pREQUIRED_ENV_OPT: bool = true;
 static pUNCHECKED_OPT: bool = true;
 static pREQUIRED_STATES_OPT: bool = true;
+
+struct FlagCtl {
+    pub PARTIAL_MATCH: bool,
+    pub LOOP_IN_SRC_MODE: bool
+}
+
+impl FlagCtl {
+    pub fn new() -> FlagCtl {
+        FlagCtl { PARTIAL_MATCH: false, LOOP_IN_SRC_MODE: false }
+    }
+}
 
 pub type Substitution<Mvar: Eq, Value: Clone + Eq> = ctl_ast::GenericSubst<Mvar, Value>;
 pub type SubstitutionList<S: Subs> = Vec<Substitution<S::Mvar, S::Value>>;
@@ -32,10 +43,14 @@ pub type WitnessTree<G: Graph, S: Subs, P: Pred> =
 type NodeList<G: Graph> = Vec<G::Node>;
 
 type Triple<G: Graph, S: Subs, P: Pred> = (G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>);
-type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
+pub type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
 
-type Model<G: Graph, S: Subs, P: Pred> =
-    (G::Cfg, fn(P::ty) -> TripleList<G, S, P>, fn(&P::ty) -> bool, NodeList<G>);
+type Model<'a, G: Graph, S: Subs, P: Pred> = (
+    &'a G::Cfg,
+    fn(&G::Cfg, &P::ty) -> TripleList<G, S, P>,
+    fn(&P::ty) -> bool,
+    NodeList<G>,
+);
 enum Auok<G: Graph, S: Subs, P: Pred> {
     Auok(TripleList<G, S, P>),
     AuFailed(TripleList<G, S, P>),
@@ -43,10 +58,11 @@ enum Auok<G: Graph, S: Subs, P: Pred> {
 
 pub trait Graph {
     type Cfg;
-    type Node: PartialEq + Ord + Clone + Hash + Copy;
+    type Node: PartialEq + Ord + Clone + Hash;
 
     fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
     fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
+    fn nodes(cfg: &Self::Cfg) -> Vec<Self::Node>;
 
     fn direct_predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
     fn direct_successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
@@ -57,7 +73,7 @@ pub trait Graph {
 }
 
 pub trait Subs {
-    type Value: Clone + PartialEq + Eq + Ord;
+    type Value: Clone + PartialEq + Eq;
     type Mvar: Clone + PartialEq + Eq + Ord;
 
     fn eq_val(a: &Self::Value, b: &Self::Value) -> bool;
@@ -78,11 +94,12 @@ fn annot<A, B, C>() {
     };
 }
 
-struct CTL_ENGINE<G: Graph, S: Subs, P: Pred> {
-    reachable_state: HashMap<(G::Node, Direction), Vec<G::Node>>,
+pub(crate) struct CTL_ENGINE<'a, G: Graph, S: Subs, P: Pred> {
     reachable_table: HashMap<(G::Node, Direction), Vec<G::Node>>,
     memo_label: HashMap<P::ty, (G::Node, Substitution<S::Mvar, S::Value>)>,
+    cfg: &'a G::Cfg,
     has_loop: bool,
+    ctl_flags: FlagCtl,
     _b: PhantomData<S>,
     _c: PhantomData<P>,
 }
@@ -193,7 +210,7 @@ fn negate_subst<S: Subs>(th: &SubstitutionList<S>) -> Vec<SubstitutionList<S>> {
     th.iter().map(|x| vec![x.neg()]).collect_vec()
 }
 
-fn negate_wit<G: Graph, S: Subs, P: Pred>(
+fn negate_wits<G: Graph, S: Subs, P: Pred>(
     wit: &Vec<WitnessTree<G, S, P>>,
 ) -> Vec<Vec<WitnessTree<G, S, P>>> {
     let mut tmp = wit.iter().map(|x| vec![x.neg()]).collect_vec();
@@ -201,7 +218,19 @@ fn negate_wit<G: Graph, S: Subs, P: Pred>(
     tmp
 }
 
-impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
+impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>::Cfg : 'a {
+    pub fn new(flow: &G::Cfg) -> CTL_ENGINE<G, S, P> {
+        CTL_ENGINE {
+            cfg: flow,
+            reachable_table: HashMap::new(),
+            memo_label: HashMap::new(),
+            has_loop: false,
+            ctl_flags: FlagCtl::new(),
+            _b: PhantomData::default(),
+            _c: PhantomData::default(),
+        }
+    }
+
     fn drop_wits(
         required_states: &Option<NodeList<G>>,
         s: &TripleList<G, S, P>,
@@ -227,6 +256,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn strict_a1(
+        &self,
         strict: Strict,
         op: fn(
             &Direction,
@@ -246,7 +276,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         required_states: &Option<Vec<G::Node>>,
     ) -> TripleList<G, S, P> {
         let res = op(dir, &m, trips, required_states);
-        if !PARTIAL_MATCH && strict == Strict::Strict {
+        if !self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
             let states = mkstates(&m.3, &required_states);
             let fail = Self::filter_conj(&states, &res, &(failop(dir, m, trips, required_states)));
             return Self::triples_union(&res, &fail);
@@ -256,6 +286,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn strict_A2au(
+        &self,
         strict: Strict,
         op: fn(
             &Direction,
@@ -278,7 +309,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     ) -> Auok<G, S, P> {
         match op(dir, m, trips1, trips2, required_states) {
             Auok::Auok(res) => {
-                if !PARTIAL_MATCH && strict == Strict::Strict {
+                if !self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
                     let states = mkstates(&m.3, required_states);
                     let fail =
                         Self::filter_conj(&states, &res, &failop(dir, m, trips1, required_states));
@@ -292,6 +323,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn strict_A2(
+        &self,
         strict: Strict,
         op: fn(
             &Direction,
@@ -313,7 +345,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         required_states: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         let res = op(dir, m, trips1, trips2, required_states);
-        if !PARTIAL_MATCH && strict == Strict::Strict {
+        if !self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
             let states = mkstates(&m.3, required_states);
             let fail = Self::filter_conj(&states, &res, &failop(dir, m, trips2, required_states));
             Self::triples_union(&res, &fail)
@@ -372,7 +404,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     ) -> (Vec<G::Node>, TripleList<G, S, P>) {
         let mut negths: TripleList<G, S, P> =
             negate_subst::<S>(th).into_iter().map(|x| (s.clone(), x, vec![])).collect_vec();
-        let negwit: TripleList<G, S, P> = negate_wit::<G, S, P>(wit)
+        let negwit: TripleList<G, S, P> = negate_wits::<G, S, P>(wit)
             .into_iter()
             .map(|x| (s.clone(), th.clone(), x))
             .collect_vec();
@@ -598,7 +630,11 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     (GenericSubst::NegSubst(_, _), GenericSubst::Subst(_, _)) => {
                         std::cmp::Ordering::Greater
                     }
-                    _ => s1.value().cmp(&s2.value()),
+                    _ => {
+                        //ASK WHY DOES RNODE NEED TO BE COMPARED
+                        todo!()
+                        // s1.value().cmp(&s2.value())
+                    }
                 }
             } else {
                 res
@@ -894,10 +930,11 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn extend_required(
+        &self,
         trips: &TripleList<G, S, P>,
         required: &Vec<Vec<SubstitutionList<S>>>,
     ) -> Vec<Vec<SubstitutionList<S>>> {
-        if !PARTIAL_MATCH {
+        if !self.ctl_flags.PARTIAL_MATCH {
             required.clone()
         } else if !pREQUIRED_ENV_OPT {
             todo!()
@@ -906,8 +943,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         }
     }
 
-    fn get_required_states<A, B, C>(l: &Vec<(A, B, C)>) -> Option<Vec<A>> {
-        if !pREQUIRED_STATES_OPT && PARTIAL_MATCH {
+    fn get_required_states<A, B, C>(&self, l: &Vec<(A, B, C)>) -> Option<Vec<A>> {
+        if !pREQUIRED_STATES_OPT && self.ctl_flags.PARTIAL_MATCH {
             todo!()
         } else {
             None
@@ -947,13 +984,14 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn strict_triples_conj(
+        &self,
         strict: Strict,
         states: NodeList<G>,
         trips1: &TripleList<G, S, P>,
         trips2: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         let res = Self::triples_conj(trips1, trips2);
-        if !PARTIAL_MATCH && strict == Strict::Strict {
+        if !self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
             let fail_left = Self::filter_conj(&states, trips1, trips2);
             let fail_right = Self::filter_conj(&states, trips2, trips1);
             let ors = Self::triples_union(&fail_left, &fail_right);
@@ -1174,11 +1212,12 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
     }
 
     fn sat_label(
-        label: impl Fn(P::ty) -> TripleList<G, S, P>,
+        &self,
+        label: fn(&G::Cfg, &P::ty) -> TripleList<G, S, P>,
         required: &Vec<Vec<SubstitutionList<S>>>,
-        p: P::ty,
+        p: &P::ty,
     ) -> TripleList<G, S, P> {
-        let triples = if !pSATLEBEL_MEMO_OPT { todo!() } else { Self::setify(&label(p)) };
+        let triples = if !pSATLEBEL_MEMO_OPT { todo!() } else { Self::setify(&label(self.cfg, p)) };
         let ntriples = normalize(triples);
         if !pREQUIRED_ENV_OPT {
             todo!();
@@ -1202,7 +1241,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                         &match self.reachable_table.get(&(curr.clone(), *dir)) {
                             None => {
                                 let states = Self::reachsatEF(&self, dir, m, &vec![curr.clone()]);
-                                self.reachable_table.insert((*curr, *dir), states.clone());
+                                self.reachable_table.insert((curr.clone(), *dir), states.clone());
                                 states
                             }
                             Some(s) => s.clone(),
@@ -1297,7 +1336,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         maxlvl: isize,
         lvl: isize,
         m: &Model<G, S, P>,
-        phi: GenericCtl<P::ty, S::Mvar, Vec<String>>,
+        phi: &GenericCtl<P::ty, S::Mvar, Vec<String>>,
         env: &Vec<(String, TripleList<G, S, P>)>,
     ) -> (D, TripleList<G, S, P>) {
         let states = &m.3;
@@ -1349,9 +1388,9 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
             let (child, res) = match phi {
                 GenericCtl::False => anno(vec![], vec![]),
                 GenericCtl::True => anno(Self::triples_top(&states), vec![]),
-                GenericCtl::Pred(p) => anno(Self::sat_label(label, required, p), vec![]),
+                GenericCtl::Pred(p) => anno(Self::sat_label(self, label, required, p), vec![]),
                 GenericCtl::Not(phi1) => {
-                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
+                    let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     anno(
                         Self::triples_complement(&mkstates(&states, &required_states), &res1),
                         vec![child1],
@@ -1359,26 +1398,26 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::Exists(keep, v, phi) => {
                     let new_required = required;
-                    let (child, res) = satv!(unchecked, new_required, required_states, *phi, env);
+                    let (child, res) = satv!(unchecked, new_required, required_states, phi, env);
                     anno(Self::triples_witness(&v, unchecked, !keep, &res), vec![child])
                 }
                 GenericCtl::And(strict, (phi1, phi2)) => {
                     let pm = !false; //PARTIAL_MATCH
-                    match (pm, satv!(unchecked, required, required_states, *phi1, env)) {
+                    match (pm, satv!(unchecked, required, required_states, phi1, env)) {
                         (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
                         (_, (child1, res1)) => {
-                            let new_required = Self::extend_required(&res1, &required);
-                            let new_required_states = Self::get_required_states(&res1);
+                            let new_required = self.extend_required(&res1, &required);
+                            let new_required_states = self.get_required_states(&res1);
                             match (
                                 pm,
-                                satv!(unchecked, &new_required, &new_required_states, *phi2, env),
+                                satv!(unchecked, &new_required, &new_required_states, phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
                                     anno(vec![], vec![child1, child2])
                                 }
                                 (_, (child2, res2)) => {
-                                    let res = Self::strict_triples_conj(
-                                        strict,
+                                    let res = self.strict_triples_conj(
+                                        *strict,
                                         mkstates(&states, &required_states),
                                         &res1,
                                         &res2,
@@ -1390,18 +1429,18 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     }
                 }
                 GenericCtl::AndAny(dir, strict, phi1, phi2) => {
-                    let pm = !PARTIAL_MATCH;
-                    match (pm, satv!(unchecked, required, required_states, *phi1, env)) {
+                    let pm = !self.ctl_flags.PARTIAL_MATCH;
+                    match (pm, satv!(unchecked, required, required_states, phi1, env)) {
                         (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
                         (_, (child1, res1)) => {
-                            let new_required = Self::extend_required(&res1, &required);
-                            let new_required_states = Self::get_required_states(&res1);
+                            let new_required = self.extend_required(&res1, &required);
+                            let new_required_states = self.get_required_states(&res1);
                             let new_required_states =
                                 Self::get_reachable(self, &dir, m, &new_required_states);
                             match (
                                 pm,
                                 //self.sat_verbose_loop(unchecked, &new_required, &new_required_states, annot, maxlvl, lvl+1, m, *phi2, env)
-                                satv!(unchecked, &new_required, &new_required_states, *phi2, env),
+                                satv!(unchecked, &new_required, &new_required_states, phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
                                     anno(res1, vec![child1, child2])
@@ -1415,8 +1454,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                                                 vec![res2[0].clone()],
                                                 |a, b| {
                                                     let s = mkstates(&states, &required_states);
-                                                    Self::strict_triples_conj(
-                                                        strict,
+                                                    self.strict_triples_conj(
+                                                        *strict,
                                                         s,
                                                         &a,
                                                         &vec![b.clone()],
@@ -1434,16 +1473,16 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                                         res2.iter().for_each(|(s1, e, w)| {
                                             hash_notest(
                                                 &mut res2_tbl,
-                                                *s1,
-                                                (*state, e.clone(), w.clone()),
+                                                s1.clone(),
+                                                (state.clone(), e.clone(), w.clone()),
                                             );
                                         });
                                         let s = mkstates(&states, &required_states);
                                         let res = reachable_states.iter().fold(res1, |a, st| {
                                             let b = res2_tbl.get(st);
                                             match b {
-                                                Some(b) => Self::strict_triples_conj(
-                                                    strict,
+                                                Some(b) => self.strict_triples_conj(
+                                                    *strict,
                                                     s.clone(),
                                                     &a,
                                                     b,
@@ -1465,28 +1504,30 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     panic!("should not be called")
                 }
                 GenericCtl::Or(phi1, phi2) => {
-                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
-                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, env);
+                    let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
+                    let (child2, res2) = satv!(unchecked, required, required_states, phi2, env);
                     anno(Self::triples_union(&res1, &res2), vec![child1, child2])
                 }
                 GenericCtl::Implies(phi1, phi2) => {
-                    satv!(unchecked, required, required_states, C![Or, C![Not, *phi1], *phi2], env)
+                    satv!(unchecked, required, required_states, &C![Or, C![Not, *phi1.clone()], *phi2.clone()],
+                        env
+                    )
                 }
                 GenericCtl::AF(dir, strict, phi1) => {
-                    if !LOOP_IN_SRC_MODE {
+                    if !self.ctl_flags.LOOP_IN_SRC_MODE {
                         return satv!(
                             unchecked,
                             required,
                             required_states,
-                            C![AU, dir, strict, C![True], *phi1],
+                            &C![AU, *dir, *strict, C![True], *phi1.clone()],
                             env
                         );
                     } else {
                         let new_required_states = self.get_reachable(&dir, m, &required_states);
                         let (child, res) =
-                            satv!(unchecked, required, &new_required_states, *phi1, env);
-                        let res = Self::strict_a1(
-                            strict,
+                            satv!(unchecked, required, &new_required_states, phi1, env);
+                        let res = self.strict_a1(
+                            *strict,
                             Self::satAF,
                             Self::satEF,
                             &dir,
@@ -1501,9 +1542,9 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     let new_required_states =
                         Self::get_children_required_states(&dir, m, &required_states);
                     let (child, res) =
-                        satv!(unchecked, &required, &new_required_states, *phi1, env);
-                    let res = Self::strict_a1(
-                        strict,
+                        satv!(unchecked, &required, &new_required_states, phi1, env);
+                    let res = self.strict_a1(
+                        *strict,
                         Self::satAX,
                         Self::satEX,
                         &dir,
@@ -1515,9 +1556,9 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::AG(dir, strict, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi1, env);
-                    let res = Self::strict_a1(
-                        strict,
+                    let (child, res) = satv!(unchecked, required, &new_required_states, phi1, env);
+                    let res = self.strict_a1(
+                        *strict,
                         Self::satAG,
                         Self::satEF,
                         &dir,
@@ -1532,14 +1573,14 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::AU(dir, strict, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    match satv!(unchecked, required, &new_required_states, *phi2, env) {
+                    match satv!(unchecked, required, &new_required_states, phi2, env) {
                         (child2, v) if v.is_empty() => anno(vec![], vec![child2]),
                         (child2, s2) => {
-                            let new_required = Self::extend_required(&s2, &required);
+                            let new_required = self.extend_required(&s2, &required);
                             let (child1, s1) =
-                                satv!(unchecked, &new_required, &new_required_states, *phi1, env);
-                            let res = Self::strict_A2au(
-                                strict,
+                                satv!(unchecked, &new_required, &new_required_states, phi1, env);
+                            let res = self.strict_A2au(
+                                *strict,
                                 Self::satAU,
                                 Self::satEF,
                                 &dir,
@@ -1555,8 +1596,8 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                                         &Self::satEU(&dir, m, &s1, &tmp_res, &new_required_states),
                                         &s1,
                                     );
-                                    let res = Self::strict_A2(
-                                        strict,
+                                    let res = self.strict_A2(
+                                        *strict,
                                         Self::satAW,
                                         Self::satEF,
                                         &dir,
@@ -1573,28 +1614,28 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::EF(dir, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi1, env);
+                    let (child, res) = satv!(unchecked, required, &new_required_states, phi1, env);
                     anno(Self::satEF(&dir, m, &res, &new_required_states), vec![child])
                 }
                 GenericCtl::EX(dir, phi) => {
                     let new_required_states =
                         Self::get_children_required_states(&dir, m, required_states);
-                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi, env);
+                    let (child, res) = satv!(unchecked, required, &new_required_states, phi, env);
                     anno(Self::satEX(&dir, m, &res, &required_states), vec![child])
                 }
                 GenericCtl::EG(dir, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    let (child, res) = satv!(unchecked, required, &new_required_states, *phi1, env);
+                    let (child, res) = satv!(unchecked, required, &new_required_states, phi1, env);
                     anno(Self::satEG(&dir, m, &res, &new_required_states), vec![child])
                 }
                 GenericCtl::EU(dir, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
-                    match (satv!(unchecked, required, &new_required_states, *phi2, env)) {
+                    match (satv!(unchecked, required, &new_required_states, phi2, env)) {
                         (child2, v) if v.is_empty() => anno(vec![], vec![child2]),
                         (child2, res2) => {
-                            let new_required = Self::extend_required(&res2, required);
+                            let new_required = self.extend_required(&res2, required);
                             let (child1, res1) =
-                                satv!(unchecked, &new_required, &new_required_states, *phi1, env);
+                                satv!(unchecked, &new_required, &new_required_states, phi1, env);
                             anno(
                                 Self::satEU(&dir, m, &res1, &res2, &new_required_states),
                                 vec![child1, child2],
@@ -1603,23 +1644,23 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     }
                 }
                 GenericCtl::Let(v, phi1, phi2) => {
-                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
-                    let mut q = vec![(v, res1)];
+                    let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
+                    let mut q = vec![(v.clone(), res1)];
                     q.extend(env.clone());
-                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, &q);
+                    let (child2, res2) = satv!(unchecked, required, required_states, phi2, &q);
                     anno(res2, vec![child1, child2])
                 }
                 GenericCtl::LetR(dir, v, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
                     let (child1, res1) =
-                        satv!(unchecked, required, &new_required_states, *phi1, env);
-                    let mut q = vec![(v, res1)];
+                        satv!(unchecked, required, &new_required_states, phi1, env);
+                    let mut q = vec![(v.clone(), res1)];
                     q.extend(env.clone());
-                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, &q);
+                    let (child2, res2) = satv!(unchecked, required, required_states, phi2, &q);
                     anno(res2, vec![child1, child2])
                 }
                 GenericCtl::Ref(v) => {
-                    let res = &env.iter().find(|(v1, res)| &v == v1).unwrap().1;
+                    let res = &env.iter().find(|(v1, res)| v == v1).unwrap().1;
                     let res = if unchecked {
                         res.into_iter()
                             .map(|(s, th, _)| (s.clone(), th.clone(), vec![]))
@@ -1630,19 +1671,15 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                     anno(res, vec![])
                 }
                 GenericCtl::SeqOr(phi1, phi2) => {
-                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
-                    let (child2, res2) = satv!(unchecked, required, required_states, *phi2, env);
+                    let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
+                    let (child2, res2) = satv!(unchecked, required, required_states, phi2, env);
 
                     let res1neg =
                         res1.clone().into_iter().map(|(s, th, _)| (s, th, vec![])).collect_vec();
-                    let pm = !PARTIAL_MATCH;
+                    let pm = !self.ctl_flags.PARTIAL_MATCH;
                     match (pm, &res1, &res2) {
-                        (false, _res1, res2) if res2.is_empty() => {
-                            anno(res1, vec![child1, child2])
-                        }
-                        (false, res1, _res2) if res1.is_empty() => {
-                            anno(res2, vec![child1, child2])
-                        }
+                        (false, _res1, res2) if res2.is_empty() => anno(res1, vec![child1, child2]),
+                        (false, res1, _res2) if res1.is_empty() => anno(res2, vec![child1, child2]),
                         _ => anno(
                             Self::triples_union(
                                 &res1,
@@ -1660,11 +1697,11 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
                 }
                 GenericCtl::Uncheck(phi1) => {
                     let unchecked = !pREQUIRED_ENV_OPT;
-                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
+                    let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     anno(res1, vec![child1])
                 }
                 GenericCtl::InnerAnd(phi1) => {
-                    let (child1, res1) = satv!(unchecked, required, required_states, *phi1, env);
+                    let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     anno(res1, vec![child1])
                 }
                 GenericCtl::XX(_, _) => {
@@ -1705,7 +1742,7 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
         m: &Model<G, S, P>,
         // lab: impl Fn(P::ty) -> Vec<(P::ty, SubstitutionList<S>)>,
         // mut nodes: Vec<G::Node>,
-        phi: GenericCtl<P::ty, S::Mvar, Vec<String>>,
+        phi: &GenericCtl<P::ty, S::Mvar, Vec<String>>,
         reqopt: Vec<Vec<P::ty>>,
     ) {
         self.reachable_table.clear();
@@ -1713,7 +1750,9 @@ impl<G: Graph, S: Subs, P: Pred> CTL_ENGINE<G, S, P> {
 
         let (x, label, preproc, states) = m;
         if Self::preprocess(x, *preproc, reqopt) {
-            if states.iter().any(|node| G::extract_is_loop(x, node)) {}
+            if states.iter().any(|node| G::extract_is_loop(x, node)) {
+
+            }
         }
     }
 }

@@ -280,7 +280,7 @@ impl<'a> Snode {
     }
 }
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct MetavarName {
     pub rulename: String,
     pub varname: String,
