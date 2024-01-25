@@ -3,18 +3,21 @@ use either::Either;
 use itertools::Itertools;
 use ra_hir::known::{std, usize};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::hash::Hash;
-use std::iter;
 use std::marker::PhantomData;
+use std::ops::Sub;
 use std::{cmp::Ordering, os::linux::raw::stat};
+use std::{isize, iter};
 
+use crate::commons::ograph_extended::NodeIndex;
 use crate::engine::cocci_vs_rs::MetavarBinding;
 use crate::{commons::info::Unknown, commons::util, ctl::ctl_ast, C};
 
-
-use super::{
-    ctl_ast::{GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict},
+use super::ctl_ast::{
+    GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict,
 };
+use super::flag_ctl;
 
 static pNEW_INFO_OPT: bool = true;
 static pSATLEBEL_MEMO_OPT: bool = true;
@@ -24,7 +27,7 @@ static pREQUIRED_STATES_OPT: bool = true;
 
 struct FlagCtl {
     pub PARTIAL_MATCH: bool,
-    pub LOOP_IN_SRC_MODE: bool
+    pub LOOP_IN_SRC_MODE: bool,
 }
 
 impl FlagCtl {
@@ -45,20 +48,16 @@ type NodeList<G: Graph> = Vec<G::Node>;
 type Triple<G: Graph, S: Subs, P: Pred> = (G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>);
 pub type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
 
-type Model<'a, G: Graph, S: Subs, P: Pred> = (
-    &'a G::Cfg,
-    fn(&G::Cfg, &P::ty) -> TripleList<G, S, P>,
-    fn(&P::ty) -> bool,
-    NodeList<G>,
-);
-enum Auok<G: Graph, S: Subs, P: Pred> {
+type Model<'a, G: Graph, S: Subs, P: Pred> =
+    (&'a G::Cfg, fn(&G::Cfg, &P::ty) -> TripleList<G, S, P>, fn(&P::ty) -> bool, NodeList<G>);
+pub enum Auok<G: Graph, S: Subs, P: Pred> {
     Auok(TripleList<G, S, P>),
     AuFailed(TripleList<G, S, P>),
 }
 
 pub trait Graph {
     type Cfg;
-    type Node: PartialEq + Ord + Clone + Hash;
+    type Node: PartialEq + Ord + Clone + Hash + Debug;
 
     fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
     fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node>;
@@ -85,14 +84,17 @@ pub trait Pred {
 }
 
 enum WitAnnoTree<A> {
+    Dummy,
     WitAnno(A, Vec<WitAnnoTree<A>>),
 }
 
-fn annot<A, B, C>() {
-    let simpleAnno = |l: A, phi: B, res: C| {
-        print!(""); //unimplemented
-    };
-}
+// fn annot<A, B, C>() {
+//     let simpleAnno = |l: A, phi: B, res: C| {
+//         print!(""); //unimplemented
+//     };
+// }
+
+fn annot<A: Graph, B: Subs, C: Pred, D>(l: isize, tl: &TripleList<A, B, C>, dl: Vec<()>) -> () {}
 
 pub(crate) struct CTL_ENGINE<'a, G: Graph, S: Subs, P: Pred> {
     reachable_table: HashMap<(G::Node, Direction), Vec<G::Node>>,
@@ -113,13 +115,17 @@ fn nub<A: Clone + Ord>(v: &Vec<A>) -> Vec<A> {
     v.into_iter().dedup().collect_vec()
 }
 
-fn set_union<A: PartialEq + Clone>(a: &Vec<A>, b: &Vec<A>) -> Vec<A> {
-    b.iter().fold(a.clone(), |mut acc, x| {
-        if acc.contains(x) {
+fn set_union<A: PartialEq + Clone>(s1: &Vec<A>, s2: &Vec<A>) -> Vec<A> {
+    s2.iter().fold(s1.clone(), |mut acc, x| {
+        if s1.contains(x) {
             return acc;
         } else {
-            acc.push(x.clone());
-            return acc;
+            if acc.contains(&x) {
+                acc
+            } else {
+                acc.push(x.clone());
+                return acc;
+            }
         }
     })
 }
@@ -165,7 +171,7 @@ fn split_subst<S: Subs>(
 //FixPOINT
 fn fix<A>(eq: impl Fn(&A, &A) -> bool, f: impl Fn(&A) -> A, x: &A) -> A {
     let x1 = f(x);
-    if eq(&x, &x1) {
+    if eq(&x1, &x) {
         x1
     } else {
         fix(eq, f, &x1)
@@ -176,12 +182,16 @@ fn subsetEq<A: Eq>(xs: &Vec<A>, ys: &Vec<A>) -> bool {
     xs.iter().all(|x| ys.contains(x))
 }
 
+fn supsetEq<A: Eq>(xs: &Vec<A>, ys: &Vec<A>) -> bool {
+    subsetEq(ys, xs)
+}
+
 fn setfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: &Vec<A>) -> Vec<A> {
     fix(subsetEq, f, x)
 }
 
 fn setgfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: &Vec<A>) -> Vec<A> {
-    fix(subsetEq, f, x)
+    fix(supsetEq, f, x)
 }
 
 //---------
@@ -218,7 +228,10 @@ fn negate_wits<G: Graph, S: Subs, P: Pred>(
     tmp
 }
 
-impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>::Cfg : 'a {
+impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P>
+where
+    <G as Graph>::Cfg: 'a,
+{
     pub fn new(flow: &G::Cfg) -> CTL_ENGINE<G, S, P> {
         CTL_ENGINE {
             cfg: flow,
@@ -418,7 +431,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
         states.iter().map(|x| (x.clone(), vec![], vec![])).collect_vec()
     }
 
-    fn setify<A: PartialEq + Clone + Ord>(mut v: &Vec<A>) -> Vec<A> {
+    fn setify<A: PartialEq + Clone + Ord>(v: &Vec<A>) -> Vec<A> {
         nub(v)
     }
 
@@ -768,7 +781,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
 
     // TRIPLES
     fn triples_conj(t1: &TripleList<G, S, P>, t2: &TripleList<G, S, P>) -> TripleList<G, S, P> {
-        let mut shared: TripleList<G, S, P> = vec![];
+        let shared: TripleList<G, S, P> = vec![];
         t1.iter().fold(shared, |rest, (s1, th1, wit1)| {
             t2.iter().fold(rest, |rest, (s2, th2, wit2)| {
                 if s1 == s2 {
@@ -865,7 +878,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
             // }
             fn inner_loop<A: Clone>(merge_one: impl Fn(&A, &A) -> A, rest: &[A]) -> Vec<A> {
                 match rest {
-                    [x1, x2, res @ ..] => {
+                    [x1, x2, rest @ ..] => {
                         let mut a = vec![merge_one(x1, x2)];
                         a.extend(inner_loop(merge_one, rest));
                         return a;
@@ -951,7 +964,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
         }
     }
 
-    fn unwitify_unwanted(trips: &TripleList<G, S, P>) -> TripleList<G, S, P> {
+    fn unwitify(trips: &TripleList<G, S, P>) -> TripleList<G, S, P> {
         let anynegwit = |x: &Vec<WitnessTree<G, S, P>>| -> bool {
             x.iter().any(|x| match x {
                 GenericWitnessTree::Wit(_, _, _, _) => false,
@@ -977,10 +990,10 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
         partial_matches: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         let x = Self::triples_conj(
-            &Self::triples_complement(&states, &Self::unwitify_unwanted(&unwanted)),
+            &Self::triples_complement(&states, &Self::unwitify(&unwanted)),
             partial_matches,
         );
-        Self::triples_conj(&Self::unwitify_unwanted(&x), &Self::triples_complement(&states, &x))
+        Self::triples_conj(&Self::unwitify(&x), &Self::triples_complement(&states, &x))
     }
 
     fn strict_triples_conj(
@@ -1058,6 +1071,10 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
             Direction::Forward => G::direct_successors,
         };
 
+
+        // let aa = pred(&grp.0, &y[0].0);
+        // eprintln!("jiboner - {:?}",&y[0].0 );
+
         let neighbours = Self::setify(
             &y.into_iter()
                 .flat_map(|(x, _, _)| {
@@ -1120,8 +1137,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
             [] => vec![],
             _ => neighbour_triples
                 .into_iter()
-                .map(|a| foldl1(|x, y| Self::triples_conj(&x, y), a))
-                .flatten()
+                .flat_map(|a| foldl1(|x, y| Self::triples_conj(&x, y), a))
                 .collect_vec(),
         }
     }
@@ -1167,7 +1183,11 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
             return Auok::Auok(s2.clone());
         } else if !pNEW_INFO_OPT {
             todo!();
-        } else {
+        }
+        else if !flag_ctl::LOOP_IN_SRC_MODE {
+            Auok::AuFailed(s2.clone())
+        } 
+        else {
             let f = |y: &TripleList<G, S, P>| {
                 let pre = Self::pre_forall(dir, &m, y, y, reqst);
                 Self::triples_union(&s2, &Self::triples_conj(&s1, &pre))
@@ -1187,7 +1207,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
     ) -> TripleList<G, S, P> {
         if s1.is_empty() {
             return s2.clone();
-        } else if (!pNEW_INFO_OPT) {
+        } else if !pNEW_INFO_OPT {
             todo!()
         } else {
             let f = |y: &TripleList<G, S, P>| {
@@ -1283,7 +1303,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
             let f = |y: &TripleList<G, S, P>| {
                 let pre = Self::pre_forall(dir, m, y, y, reqst);
                 let conj = Self::triples_conj(s1, &pre);
-                Self::triples_conj(s2, &conj)
+                Self::triples_union(s2, &conj)
             };
             let drop_wits = |y: &TripleList<G, S, P>| {
                 y.iter().map(|(s, e, _)| (s.clone(), e.clone(), vec![])).collect_vec()
@@ -1329,7 +1349,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
         required_states: &Option<Vec<G::Node>>,
         annot: fn(
             isize,
-            // &GenericCtl<P::ty, S::Mvar, Vec<String>>,
+            // &GenericCtl<P::ty, S::Mvar, Vec<string>>,
             &TripleList<G, S, P>,
             Vec<D>,
         ) -> D,
@@ -1355,6 +1375,15 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
                     $phi,
                     $env,
                 )
+            };
+        }
+
+        macro_rules! print_triple {
+            ($a: expr) => {
+                for i in $a {
+                    eprint!("{:?}, ", i.0);
+                    eprintln!();
+                }
             };
         }
 
@@ -1509,7 +1538,11 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
                     anno(Self::triples_union(&res1, &res2), vec![child1, child2])
                 }
                 GenericCtl::Implies(phi1, phi2) => {
-                    satv!(unchecked, required, required_states, &C![Or, C![Not, *phi1.clone()], *phi2.clone()],
+                    satv!(
+                        unchecked,
+                        required,
+                        required_states,
+                        &C![Or, C![Not, *phi1.clone()], *phi2.clone()],
                         env
                     )
                 }
@@ -1541,8 +1574,7 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
                 GenericCtl::AX(dir, strict, phi1) => {
                     let new_required_states =
                         Self::get_children_required_states(&dir, m, &required_states);
-                    let (child, res) =
-                        satv!(unchecked, &required, &new_required_states, phi1, env);
+                    let (child, res) = satv!(unchecked, &required, &new_required_states, phi1, env);
                     let res = self.strict_a1(
                         *strict,
                         Self::satAX,
@@ -1713,29 +1745,29 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
         }
     }
 
-    fn filter_partial_matches() {}
+    // fn filter_partial_matches() {}
 
-    fn preprocess(cfg: &G::Cfg, preproc: fn(&P::ty) -> bool, res: Vec<Vec<P::ty>>) -> bool {
-        return true;
-        // if res.is_empty() {
-        //     true
-        // }
-        // else {
-        //     let l = res;
-        //     let sz: usize = G::size(cfg);
-        //     let get_any = |verbose, x| {
-        //         let res = preproc(x);
-        //         res
-        //     };
-        //     let get_all = |l: &Vec<P::ty>| if l.len()  > sz-2 {false} else {
-        //         // l.iter().all(|x| get_any(false, x))
-        //     };
-        //     if l.iter().any(|x| get_all(x)) { true }
-        //     else {
-        //         false
-        //     }
-        // }
-    }
+    // fn preprocess(cfg: &G::Cfg, preproc: fn(&P::ty) -> bool, res: Vec<Vec<P::ty>>) -> bool {
+    //     return true;
+    //     // if res.is_empty() {
+    //     //     true
+    //     // }
+    //     // else {
+    //     //     let l = res;
+    //     //     let sz: usize = G::size(cfg);
+    //     //     let get_any = |verbose, x| {
+    //     //         let res = preproc(x);
+    //     //         res
+    //     //     };
+    //     //     let get_all = |l: &Vec<P::ty>| if l.len()  > sz-2 {false} else {
+    //     //         // l.iter().all(|x| get_any(false, x))
+    //     //     };
+    //     //     if l.iter().any(|x| get_all(x)) { true }
+    //     //     else {
+    //     //         false
+    //     //     }
+    //     // }
+    // }
 
     pub fn sat(
         &mut self,
@@ -1744,15 +1776,31 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P> where <G as Graph>:
         // mut nodes: Vec<G::Node>,
         phi: &GenericCtl<P::ty, S::Mvar, Vec<String>>,
         reqopt: Vec<Vec<P::ty>>,
-    ) {
+    ) -> TripleList<G, S, P> {
         self.reachable_table.clear();
         self.memo_label.clear();
 
         let (x, label, preproc, states) = m;
-        if Self::preprocess(x, *preproc, reqopt) {
-            if states.iter().any(|node| G::extract_is_loop(x, node)) {
-
-            }
+        // if Self::preprocess(x, *preproc, reqopt) {
+        if states.iter().any(|node| G::extract_is_loop(x, node)) {
+            self.ctl_flags.LOOP_IN_SRC_MODE = true;
         }
+        // let m = (x, label, *preproc, states.sort());
+
+        let res = self.sat_verbose_loop(
+            false,
+            &vec![],
+            &None,
+            annot::<G, S, P, ()>,
+            -1,
+            0,
+            m,
+            phi,
+            &vec![],
+        );
+
+        return res.1;
+        // println!("{:?}");
+        // }
     }
 }

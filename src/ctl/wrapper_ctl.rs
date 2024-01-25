@@ -25,6 +25,6 @@ pub enum WrappedBinding<Pred, Value> {
 // }
 
 pub fn make_ctl(patch: &Patch) -> GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, Rc<Rnode>> as Subs>::Mvar, Vec<String>> {
-    todo!()
+    GenericCtl::True
 }
 

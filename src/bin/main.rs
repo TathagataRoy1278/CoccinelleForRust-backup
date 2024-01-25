@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0
 
+use clap::builder::Str;
 use clap::Parser;
 use coccinelleforrust::commons::info::ParseError::*;
 use coccinelleforrust::commons::util::attach_spaces_right;
-use coccinelleforrust::debugcocci;
+use coccinelleforrust::ctl::ctl_ast::{
+    Direction::{Backward, Forward},
+    Strict::{NonStrict, Strict},
+};
+use coccinelleforrust::ctl::ctl_ast::{GenericSubst, Modif};
+use coccinelleforrust::ctl::ctl_engine::{Pred, Subs};
+use coccinelleforrust::engine::cocci_vs_rs::match_nodes;
+use coccinelleforrust::engine::ctl_cocci::{processctl, Predicate};
+use coccinelleforrust::parsing_cocci::ast0::MetavarName;
 use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
-use coccinelleforrust::parsing_rs::parse_rs::{processrs, processrswithsemantics};
+use coccinelleforrust::parsing_rs::control_flow::ast_to_flow;
+use coccinelleforrust::parsing_rs::parse_rs::{
+    parse_stmts_snode, processrs, processrswithsemantics,
+};
 use coccinelleforrust::parsing_rs::type_inference::{gettypedb, set_types};
+use coccinelleforrust::{debugcocci, C};
 use coccinelleforrust::{
     engine::cocci_vs_rs::MetavarBinding, engine::transformation,
     interface::interface::CoccinelleForRust, parsing_cocci::ast0::Snode, parsing_rs::ast_rs::Rnode,
@@ -20,8 +33,15 @@ use std::fs::{canonicalize, DirEntry};
 use std::io;
 use std::io::Write;
 use std::process::{Command, Output};
+use std::rc::Rc;
 use std::{fs, path::Path, process::exit};
 use tempfile::NamedTempFile;
+
+type GenericCtl = coccinelleforrust::ctl::ctl_ast::GenericCtl<
+    <Predicate as Pred>::ty,
+    <GenericSubst<MetavarName, Rc<Rnode>> as Subs>::Mvar,
+    Vec<String>,
+>;
 
 #[allow(dead_code)]
 fn tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
@@ -122,9 +142,12 @@ fn getformattedfile(
     //VERY IMPORTANT :-
     //CHECK TO REMOVE THIS FILE FOR ALL ERROR CASES
     transformedcode.writetotmpnamedfile(&randfile);
-    debugcocci!((|| {
-        fs::write("/tmp/tmp_CFR_COCCI.rs", transformedcode.getunformatted()).expect("Failed to write to tmp");
-    }));
+    debugcocci!(
+        (|| {
+            fs::write("/tmp/tmp_CFR_COCCI.rs", transformedcode.getunformatted())
+                .expect("Failed to write to tmp");
+        })
+    );
     // Now, optionally, we may want to not rust-format the code.
     if !cfr.suppress_formatting {
         //should never be disabled except for debug
@@ -385,8 +408,67 @@ fn visit_dirs(dir: &Path, ignore: &str, cb: &mut dyn FnMut(&DirEntry)) -> io::Re
     Ok(())
 }
 
+fn run_test(args: &CoccinelleForRust) {
+    let arg = args.dots.split("...");
+    let s = arg.collect_vec();
+    let (s1, s2) = (s[0], s[1]);
+
+    let s1 = parse_stmts_snode(s1);
+    let s2 = parse_stmts_snode(s2);
+
+    let p1 = C![Pred, (Predicate::Match(s1.clone()), Modif::<Snode>::Control)];
+    let p2 = C![Pred, (Predicate::Match(s2.clone()), Modif::<Snode>::Control)];
+
+    // let f1 = GenericCtl::And(Strict, (Box::new(p1.clone()), Box::new(p2.clone())));
+    let t0 = GenericCtl::Or(Box::new(p1.clone()), Box::new(p2.clone()));
+    let t1 = C![Not, t0.clone()];
+    // let ctl = C![AU, Direction::Forward, Strict::Strict, C![Pred, p1], C![Pred, p2]];
+    let t2 = C![AU, Forward, Strict, t1.clone(), p2];
+    let t3 = GenericCtl::AX(Forward, Strict, Box::new(t2.clone()));
+    let t4 = GenericCtl::And(Strict, (Box::new(p1), Box::new(t3)));
+
+    let rfile = fs::read_to_string(&args.targetpath).unwrap();
+    let rnode = processrs(&rfile).unwrap();
+    let rnodes = vec![rnode];
+    let flow = ast_to_flow(&rnodes);
+    // flow.nodes().iter().for_each(|x| {
+    //     if !flow.node(*x).data().is_dummy() {
+    //         eprint!(
+    //             "{}:{:?} - {:?}",
+    //             x.0,
+    //             flow.node(*x).data().rnode().kind(),
+    //             flow.node(*x).data().rnode().getstring()
+    //         );
+    //     } else {
+    //         eprint!("{} - DummyNode", x.0);
+    //     }
+
+    //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
+    // });
+    // flow.nodes().iter().for_each(|x| {
+    //     if !flow.node(*x).data().is_dummy() {#
+    //         let t = match_nodes(s1.iter().collect_vec(), flow.node(*x).data().rnode(), &vec![]);
+    //     }
+    // });
+
+    let res = processctl(&t4, &flow, &vec![]);
+    if res.len() > 0 {
+        res.iter().for_each(|(x, _, _)| {
+            eprintln!("{} -> {}", x.to_usize(), flow.node(*x).data().rnode().getstring())
+        });
+    }
+    // let _ = res.iter().map(|(x, _, _)| {
+    //     eprintln!("{} -> {:?}", x.to_usize(), flow.node(*x).data().rnode().getstring());
+    // });
+}
+
 fn main() {
     let args = CoccinelleForRust::parse();
+    if !args.dots.is_empty() {
+        run_test(&args);
+        exit(1);
+    }
+
     init_logger(&args);
     makechecks(&args);
 

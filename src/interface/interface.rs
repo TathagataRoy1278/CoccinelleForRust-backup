@@ -43,6 +43,11 @@ pub struct CoccinelleForRust {
     #[arg(short, long)]
     pub no_parallel: bool,
 
+    /// Used only for development
+    /// Do not use
+    #[arg(long)]
+    pub dots: String,
+
     /// strategy for identifying files that may be matched by the semantic patch
     #[arg(long, value_enum, default_value_t = get_constants::Scanner::CocciGrep)]
     pub worth_trying: get_constants::Scanner,

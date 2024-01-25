@@ -145,13 +145,11 @@ fn tokenf(a: &Snode, b: &Rnode) -> Vec<MetavarBinding> {
     return vec![];
 }
 
-pub struct Looper<'a> {
-    _tokenf: fn(&'a Snode, &'a Rnode) -> Vec<MetavarBinding>,
-}
+pub struct Looper {}
 
-impl<'a, 'b> Looper<'a> {
-    pub fn new(_tokenf: fn(&'a Snode, &'a Rnode) -> Vec<MetavarBinding>) -> Looper<'a> {
-        Looper { _tokenf }
+impl<'a, 'b> Looper {
+    pub fn new(_tokenf: fn(&'a Snode, &'a Rnode) -> Vec<MetavarBinding>) -> Looper {
+        Looper {}
     }
 
     //actual matching function. Takes two nodes and recursively matches them
@@ -309,6 +307,7 @@ impl<'a, 'b> Looper<'a> {
                     env.addbinding(binding);
                 }
                 MetavarMatch::Exists => {
+                    // eprintln!("matched {} to {}", a.getstring(), b.getstring());
                     //No bindings are created
                     addplustoenv(a, b, &mut env);
                     addexplustoenv(b, pluses, &mut env);
@@ -557,18 +556,18 @@ pub fn visitrnode_tmp<'a>(
     return environments;
 }
 
-pub fn visitrnode<'a>(
-    nodea: &Vec<&Snode>,//Should be a statement list
-    nodeb: &'a Rnode,
-    f: &dyn Fn(&Vec<&Snode>, &Vec<&'a Rnode>) -> Environment,
+pub fn visitrnode(
+    nodea: &Vec<&Snode>, //Should be a statement list
+    nodeb: &Rnode,
+    f: &dyn Fn(&Vec<&Snode>, &Vec<&Rnode>) -> Environment,
 ) -> Vec<Environment> {
     let mut environments = vec![];
     let nodebchildren = &mut nodeb.children.iter();
 
     loop {
         let tmp = f(nodea, &nodebchildren.clone().collect_vec()); //CLoning an Iter only clones the references inside
-
         if !tmp.failed {
+            // eprintln!("successful");
             environments.push(tmp);
         }
 
@@ -582,16 +581,17 @@ pub fn visitrnode<'a>(
 }
 
 pub fn match_nodes(
-    nodea: &Snode,//This is a stmtlist
+    nodea: Vec<&Snode>, //This is a stmtlist
     nodeb: &Rnode,
-    inherited_bindings: &Vec<MetavarBinding>
-) -> Vec<Environment> {
-    let nodeac = &getstmtlist(nodea).children.iter().collect_vec();
+    inherited_bindings: &Vec<MetavarBinding>,
+) -> Environment {
     let looper = Looper::new(tokenf);
     let mut ienv = Environment::new();
     ienv.addbindings(&inherited_bindings.iter().collect_vec());
-    let envs = visitrnode(nodeac, nodeb, &mut |na, nb| {
-        looper.matchnodes(na, nb, ienv.clone(), true)
-    });
-    envs
+    let f = &mut |x: &Vec<&Snode>, y: &Vec<&Rnode>| {
+        looper.matchnodes(x, y, ienv.clone(), true)
+    };
+    // let envs = visitrnode(&nodea, nodeb, f);
+    let env = looper.matchnodes(&nodea, &vec![nodeb], ienv, true);
+    env
 }

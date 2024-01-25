@@ -18,7 +18,7 @@ pub type Keepbinding = bool;
 pub enum GenericCtl<Pred, Mvar, Anno> {
     False,
     True,
-    Pred(Pred),
+    Pred(Box<Pred>),
     Not(Box<GenericCtl<Pred, Mvar, Anno>>),
     Exists(Keepbinding, Mvar, Box<GenericCtl<Pred, Mvar, Anno>>),
     And(Strict, (Box<GenericCtl<Pred, Mvar, Anno>>, Box<GenericCtl<Pred, Mvar, Anno>>)),

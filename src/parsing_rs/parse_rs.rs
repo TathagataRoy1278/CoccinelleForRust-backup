@@ -3,7 +3,7 @@
 use ra_ide_db::line_index::LineIndex;
 use ra_syntax::{SourceFile, SyntaxElement, SyntaxError, SyntaxNode};
 
-use crate::{commons::info::ParseInfo, parsing_rs::visitor_ast::work_node};
+use crate::{commons::info::ParseInfo, parsing_cocci::{ast0::Snode, parse_cocci::processcocci}, parsing_rs::visitor_ast::work_node};
 
 use super::ast_rs::{Rnode, Wrap};
 
@@ -60,6 +60,20 @@ fn pretty_print_errors(errors: &[SyntaxError], code: &str, lindex: &LineIndex) -
     }
 
     return ret;
+}
+
+pub fn parse_stmts_snode(contents: &str) -> Vec<Snode> {
+    let wrap = format!("@@\n@@\n{}", contents);
+    let rule = processcocci(&wrap).0.remove(0);
+    let mut node = rule.patch.minus;
+
+    let node =  node.children.remove(0)//Function;
+                                .children.remove(3)//BlockExpr
+                                .children.remove(0)
+                                .children;
+    
+    return node;
+
 }
 
 pub fn processrs(contents: &str) -> Result<Rnode, String> {

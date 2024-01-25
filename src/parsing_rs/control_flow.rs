@@ -1,6 +1,6 @@
 use itertools::Itertools;
 
-use crate::commons::ograph_extended::{Graph, NodeIndex, EdgeType, NodeData};
+use crate::commons::ograph_extended::{EdgeType, Graph, NodeData, NodeIndex};
 use crate::parsing_rs::ast_rs::Rnode;
 
 // enum Node1<'a> {
@@ -20,6 +20,31 @@ use crate::parsing_rs::ast_rs::Rnode;
 //     LoopHeader(&'a Rnode),
 //     MatchHeader(&'a Rnode),
 // }
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum Node<'a> {
+    StartNode,
+    RnodeW(NodeWrap<'a>),
+    EndNode,
+}
+
+impl<'a> Node<'a> {
+    pub fn rnode(&self) -> &'a Rnode {
+        match self {
+            Node::StartNode => panic!("Shouldnt be called"),
+            Node::RnodeW(nodew) => return nodew.rnode,
+            Node::EndNode => panic!("Shouldnt be called"),
+        }
+    }
+
+    pub fn is_dummy(&self) -> bool {
+        match self {
+            Node::StartNode => true,
+            Node::RnodeW(_) => false,
+            Node::EndNode => true,
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct NodeWrap<'a> {
@@ -45,7 +70,11 @@ struct NodeInfo {
     is_fake: bool,
 }
 
-pub type Rflow<'a> = Graph<NodeWrap<'a>>;
+pub type Rflow<'a> = Graph<Node<'a>>;
+
+fn make_node<'a>(label: usize, rnode: &'a Rnode) -> Node<'a> {
+    return Node::RnodeW(NodeWrap { rnode: rnode, info: NodeInfo::new(label) });
+}
 
 impl NodeInfo {
     pub fn new(labels: usize) -> NodeInfo {
@@ -53,34 +82,95 @@ impl NodeInfo {
     }
 }
 
-pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) {
-    fn make_graph<'b, 'a: 'b>(graph: &'b mut Graph<NodeWrap<'a>>, rnodes: &'a Vec<Rnode>, label: usize) -> NodeIndex {
-        let mut node_indices = vec![];
-        for rnode in rnodes {
-            let label = label;
-            let info = NodeInfo::new(label);
-            let node = NodeWrap { rnode, info };
-
-            node_indices.push(graph.add_node(node));
+pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
+    fn make_graph<'b, 'a: 'b>(
+        mut prev: NodeIndex,
+        graph: &'b mut Graph<Node<'a>>,
+        rnodes: &'a Vec<Rnode>,
+        label: usize,
+    ) -> Option<NodeIndex> {
+        let label = label << 1;
+        if rnodes.is_empty() {
+            return None;
         }
 
-        let fni = node_indices[0];
-        for (ni, nni) in node_indices.into_iter().tuples() {
-            let node: &NodeData<NodeWrap<'a>> = graph.get_node(ni);
-            let nodew: &NodeWrap<'a> = node.data();
-            let rnode: &'a Rnode = nodew.rnode;
-            match rnode.kind() {
-                _ => {
-                    let cni = make_graph(graph, &rnode.children, label<<1);
-                    graph.add_edge(ni, cni, EdgeType::Children);
+        for rnode in rnodes {
+            let node = make_node(label, rnode);
+            let ind = graph.add_node(node);
+            graph.add_edge(prev, ind, EdgeType::Default);
+
+            let inds = make_graph(ind, graph, &rnode.children, label);
+            match inds {
+                Some(e) => {
+                    prev = e;
+                }
+                None => {
+                    prev = ind;
                 }
             }
-            graph.add_edge(ni, nni, EdgeType::Default);
         }
 
-        return fni;
+        return Some(prev);
     }
 
-    let mut graph: Graph<NodeWrap<'a>> = Graph::new();
-    make_graph(&mut graph, rnodes, 0);
+    let mut graph: Graph<Node<'a>> = Graph::new();
+    let f = graph.add_node(Node::StartNode);
+
+    let e = make_graph(f, &mut graph, rnodes, 0).unwrap();
+
+    //Make end dummy node loop
+    let ind = graph.add_node(Node::EndNode);
+    graph.add_edge(e, ind, EdgeType::Default);
+    graph.add_edge(ind, ind, EdgeType::Default);
+
+    return graph;
 }
+
+// pub fn ast_to_flow_tmp<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
+//     fn make_graph<'b, 'a: 'b>(
+//         graph: &'b mut Graph<Node<'a>>,
+//         rnodes: &'a Vec<Rnode>,
+//         label: usize,
+//     ) -> Option<NodeIndex> {
+//         let mut node_indices = vec![];
+//         for rnode in rnodes {
+//             let label = label;
+//             let info = NodeInfo::new(label);
+//             let node = NodeWrap { rnode, info };
+
+//             node_indices.push(graph.add_node(Node::RnodeW(node)));
+//         }
+//         node_indices.push(graph.add_node(Node::EndNode));
+
+//         let fni = node_indices[0];
+//         let mut iter = node_indices.into_iter().peekable();
+//         while let Some(ni) = iter.next() {
+//             let node = graph.get_node(ni);
+//             let nodew = node.data();
+
+//             match nodew {
+//                 Node::RnodeW(nodew) => {
+//                     let rnode: &'a Rnode = nodew.rnode;
+//                     match rnode.kind() {
+//                         _ => {
+//                             let cni = make_graph(graph, &rnode.children, label << 1);
+//                             cni.map(|cni| graph.add_edge(ni, cni, EdgeType::Children));
+//                         }
+//                     }
+//                     if let Some(nni) = iter.peek() {
+//                         graph.add_edge(ni, *nni, EdgeType::Default);
+//                     }
+//                 }
+//                 Node::EndNode => {
+//                     graph.add_edge(ni, ni, EdgeType::Default);
+//                 }
+//             }
+//         }
+
+//         return Some(fni);
+//     }
+
+//     let mut graph: Graph<Node<'a>> = Graph::new();
+//     make_graph(&mut graph, rnodes, 0);
+//     return graph;
+// }
