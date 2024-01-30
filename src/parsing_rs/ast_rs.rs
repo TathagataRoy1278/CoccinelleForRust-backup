@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 
 use itertools::izip;
@@ -107,6 +107,12 @@ pub struct Rnode {
     kind: SyntaxKind,
     //care of the whitespaces
     pub children: Vec<Rnode>,
+}
+
+impl Display for Rnode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.getstring())
+    }
 }
 
 impl PartialEq for Rnode {

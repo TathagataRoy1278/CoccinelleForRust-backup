@@ -16,7 +16,7 @@ use std::{collections::HashSet, rc::Rc, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
-    commons::{util::{self, attach_pluses_back, attach_pluses_front, collecttree, removestmtbraces, worksnode}, info::WILDCARD}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl}, debugcocci, engine::ctl_cocci::Predicate, parsing_cocci::ast0::MetavarType, parsing_rs::ast_rs::Rnode, syntaxerror
+    commons::{util::{self, attach_pluses_back, attach_pluses_front, collecttree, removestmtbraces, worksnode}, info::WILDCARD}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl}, debugcocci, engine::ctl_cocci::{Predicate, SubOrMod}, parsing_cocci::ast0::MetavarType, parsing_rs::ast_rs::Rnode, syntaxerror
 };
 use ra_parser::SyntaxKind;
 
@@ -333,7 +333,7 @@ pub struct Rule {
     pub freevars: Vec<MetaVar>,
     pub usedafter: HashSet<MetavarName>,
     pub hastype: bool,
-    pub ctl: GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, Rc<Rnode>> as Subs>::Mvar, Vec<String>>
+    pub ctl: GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar, Vec<String>>
 }
 
 // Given the depends clause it converts it into a Dep object

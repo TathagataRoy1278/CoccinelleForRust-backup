@@ -25,6 +25,7 @@ const EXCEPTIONAL_MATCHES: [(Tag, Tag); 0] = [];
 pub struct MetavarBinding {
     pub metavarinfo: MetavarName,
     pub rnode: Rc<Rnode>,
+    neg: bool,
 }
 
 impl<'a> MetavarBinding {
@@ -32,11 +33,20 @@ impl<'a> MetavarBinding {
         return MetavarBinding {
             metavarinfo: MetavarName { rulename: rname, varname: varname },
             rnode: Rc::new(rnode),
+            neg: false
         };
+    }
+
+    pub fn from_subs(mvar: MetavarName, rnode: Rc<Rnode>, neg: bool) -> MetavarBinding{
+        return MetavarBinding {
+            metavarinfo: mvar,
+            rnode: rnode,
+            neg
+        }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Modifiers {
     pub minuses: Vec<(usize, usize)>,           //start, end
     pub pluses: Vec<(usize, bool, Vec<Snode>)>, //pos, isbefore?, actual plusses

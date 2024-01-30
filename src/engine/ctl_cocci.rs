@@ -1,4 +1,6 @@
+use std::fmt::Debug;
 use std::rc::Rc;
+use std::hash::Hash;
 
 use itertools::Itertools;
 
@@ -12,16 +14,32 @@ use crate::parsing_cocci::parse_cocci::Rule;
 use crate::parsing_rs::control_flow::{NodeWrap, Rflow};
 use crate::{commons::ograph_extended::NodeData, parsing_rs::ast_rs::Rnode};
 
-use super::cocci_vs_rs::{Looper, MetavarBinding};
+use super::cocci_vs_rs::{Looper, MetavarBinding, Modifiers};
 
-type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, Rc<Rnode>>;
+#[derive(Clone, PartialEq, Eq)]
+pub enum SubOrMod {
+    Sub(Rc<Rnode>),
+    Mod(Vec<Snode>, Modifiers),
+}
+
+type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, SubOrMod>;
+
+impl Debug for SubOrMod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sub(arg0) => write!(f, "{}", arg0),
+            Self::Mod(arg0, _arg1) => write!(f, "{:?}", arg0),
+        }
+    }
+}
 
 impl Subs for Substitution {
-    type Value = Rc<Rnode>;
+    type Value = SubOrMod;
     type Mvar = MetavarName;
 
     fn eq_val(a: &Self::Value, b: &Self::Value) -> bool {
-        a.equals(b)
+        //shouldnt be required
+        todo!()
     }
 
     fn merge_val(a: &Self::Value, b: &Self::Value) -> Self::Value {
@@ -33,10 +51,6 @@ type SubstitutionList = crate::ctl::ctl_engine::SubstitutionList<Substitution>;
 
 impl<'a> Graph for Rflow<'a> {
     type Cfg = Rflow<'a>;
-
-    //IMP ASK WHY NODE NEEDS TO HAVE ORD
-    //DO WE NEED THE ORD with respect to only the
-    //data or the other things too?
     type Node = NodeIndex;
 
     fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
@@ -69,23 +83,27 @@ impl<'a> Graph for Rflow<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Predicate {
     Match(Vec<Snode>),
 }
+
 pub enum MVar<'a> {
     NormalMatch(&'a Rnode),
 }
+
 impl Pred for Predicate {
-    type ty = (Predicate, Modif<Snode>);
+    type ty = (Predicate, Modif<Vec<Snode>>);
 }
 
 fn create_subs(s: MetavarBinding) -> Substitution {
-    return GenericSubst::Subst(s.metavarinfo, s.rnode);
+    return GenericSubst::Subst(s.metavarinfo, SubOrMod::Sub(s.rnode));
 }
 fn tokenf(a: &Snode, b: &Rnode) -> Vec<MetavarBinding> {
     vec![]
 }
+
+pub type CWitnessTree<'a> = WitnessTree<Rflow<'a>, Substitution, Predicate>;
 
 fn labels_for_ctl<'a>() -> fn(
     flow: &<Rflow<'a> as Graph>::Cfg,
@@ -99,25 +117,34 @@ fn labels_for_ctl<'a>() -> fn(
         flow: &'a Rflow<'a>,
         p: &<Predicate as Pred>::ty,
     ) -> TripleList<Rflow<'a>, Substitution, Predicate> {
-        match &p.0 {
-            Predicate::Match(snode) => flow.nodes().iter().fold(vec![], |mut prev, node| {
-                if flow.node(*node).data().is_dummy() {
-                    prev
-                } else {
-                    let env = match_nodes(
-                        snode.iter().collect_vec(),
-                        flow.node(*node).data().rnode(),
-                        &vec![],
-                    );
-                    if !env.failed {
-                        let t = env.bindings.into_iter().map(|s| create_subs(s)).collect_vec();
-                        let sub = (NodeIndex(node.to_usize()), t, vec![]);
+        match &p {
+            (Predicate::Match(snode), modif) => {
+                flow.nodes().iter().fold(vec![], |mut prev, node| {
+                    if flow.node(*node).data().is_dummy() {
+                        prev
+                    } else {
+                        let rnode = flow.node(*node).data().rnode();
+                        let env = match_nodes(snode.iter().collect_vec(), rnode, &vec![]);
+                        if !env.failed {
+                            // if snode
+                            let mut t = vec![];
+                            if modif.ismodif() {
+                                t.push(Substitution::Subst(
+                                    MetavarName::create_v(),
+                                    SubOrMod::Mod(snode.clone(), env.modifiers),
+                                ));
+                            }
+                            t.extend(
+                                env.bindings.into_iter().map(|s| create_subs(s)).collect_vec(),
+                            );
+                            let sub = (NodeIndex(node.to_usize()), t, vec![]);
 
-                        prev.push(sub);
+                            prev.push(sub);
+                        }
+                        prev
                     }
-                    prev
-                }
-            }),
+                })
+            }
         }
     }
 
@@ -262,7 +289,7 @@ pub fn model_for_ctl<'a>(
 pub fn processctl<'a>(
     ctl: &GenericCtl<
         <Predicate as Pred>::ty,
-        <GenericSubst<MetavarName, Rc<Rnode>> as Subs>::Mvar,
+        <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar,
         Vec<String>,
     >,
     flow: &'a Rflow<'a>,

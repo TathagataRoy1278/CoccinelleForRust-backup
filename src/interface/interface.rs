@@ -46,7 +46,7 @@ pub struct CoccinelleForRust {
     /// Used only for development
     /// Do not use
     #[arg(long)]
-    pub dots: String,
+    pub dots: Option<String>,
 
     /// strategy for identifying files that may be matched by the semantic patch
     #[arg(long, value_enum, default_value_t = get_constants::Scanner::CocciGrep)]

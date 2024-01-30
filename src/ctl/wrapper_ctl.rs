@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::{
-    engine::ctl_cocci::Predicate, parsing_cocci::{ast0::{MetavarName, Snode}, parse_cocci::Patch}, parsing_rs::ast_rs::Rnode
+    engine::ctl_cocci::{Predicate, SubOrMod}, parsing_cocci::{ast0::{MetavarName, Snode}, parse_cocci::Patch}, parsing_rs::ast_rs::Rnode
 };
 
 use super::{
@@ -24,7 +24,14 @@ pub enum WrappedBinding<Pred, Value> {
 
 // }
 
-pub fn make_ctl(patch: &Patch) -> GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, Rc<Rnode>> as Subs>::Mvar, Vec<String>> {
+//For A...B patches
+pub fn make_ctl_simple(s1: &Vec<Snode>, s2: Vec<Snode>) -> GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar, Vec<String>> {
+    
+    todo!()
+}
+
+pub fn make_ctl(patch: &Patch) -> GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar, Vec<String>> {
+    // todo!()
     GenericCtl::True
 }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 use std::collections::HashSet;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 use std::process::exit;
 
@@ -46,16 +46,7 @@ pub type Pluses = (Vec<Snode>, Vec<Snode>);
 
 impl Debug for Snode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.children.len() == 0 {
-            f.debug_struct("Snode")
-                .field("asttoken", &self.asttoken.as_ref().unwrap().to_string())
-                .finish()
-        } else {
-            f.debug_struct("Snode")
-                .field("kind", &self.kind())
-                .field("children", &self.children)
-                .finish()
-        }
+        write!(f, "{}", self.getstring())
     }
 }
 
@@ -284,6 +275,21 @@ impl<'a> Snode {
 pub struct MetavarName {
     pub rulename: String,
     pub varname: String,
+}
+
+impl MetavarName {
+    pub fn create_v() -> MetavarName {
+        MetavarName {
+            rulename: String::from("NONE"),
+            varname: String::from("_v")
+        }
+    }
+}
+
+impl Display for MetavarName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", format!("{}.{}", self.rulename, self.varname))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]

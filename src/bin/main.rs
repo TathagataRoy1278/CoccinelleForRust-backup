@@ -3,15 +3,15 @@
 use clap::builder::Str;
 use clap::Parser;
 use coccinelleforrust::commons::info::ParseError::*;
-use coccinelleforrust::commons::util::attach_spaces_right;
+use coccinelleforrust::commons::util::{attach_spaces_right, getstmtlist};
 use coccinelleforrust::ctl::ctl_ast::{
     Direction::{Backward, Forward},
     Strict::{NonStrict, Strict},
 };
-use coccinelleforrust::ctl::ctl_ast::{GenericSubst, Modif};
+use coccinelleforrust::ctl::ctl_ast::{GenericSubst, GenericWitnessTree, Modif};
 use coccinelleforrust::ctl::ctl_engine::{Pred, Subs};
-use coccinelleforrust::engine::cocci_vs_rs::match_nodes;
-use coccinelleforrust::engine::ctl_cocci::{processctl, Predicate};
+use coccinelleforrust::engine::cocci_vs_rs::{match_nodes, Environment, Modifiers};
+use coccinelleforrust::engine::ctl_cocci::{self, processctl, CWitnessTree, Predicate, SubOrMod};
 use coccinelleforrust::parsing_cocci::ast0::MetavarName;
 use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
 use coccinelleforrust::parsing_rs::control_flow::ast_to_flow;
@@ -39,7 +39,7 @@ use tempfile::NamedTempFile;
 
 type GenericCtl = coccinelleforrust::ctl::ctl_ast::GenericCtl<
     <Predicate as Pred>::ty,
-    <GenericSubst<MetavarName, Rc<Rnode>> as Subs>::Mvar,
+    <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar,
     Vec<String>,
 >;
 
@@ -208,7 +208,7 @@ fn getformattedfile(
         //let formattednode =
         //  processrs(&fs::read_to_string(&randrustfile).expect("Could not read")).unwrap();
 
-        //eprintln!("{}", formattednode.getunformatted());
+        // eprintln!("Formatted - {}", formattednode.getunformatted());
         adjustformat(transformedcode, &formattednode, None);
         randfile = NamedTempFile::new().expect("Cannot create temporary file.");
         randrustfile = randfile.path().to_str().expect("Cannot get temporary file.");
@@ -408,28 +408,113 @@ fn visit_dirs(dir: &Path, ignore: &str, cb: &mut dyn FnMut(&DirEntry)) -> io::Re
     Ok(())
 }
 
+fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
+    // let bindings = vec![];
+    fn aux(tree: &CWitnessTree, mut env: Environment) -> (Environment, Vec<Modifiers>) {
+        match tree {
+            GenericWitnessTree::Wit(noden, subst, _, rtree) => {
+                let mut mods = vec![];
+                let mut mbindings = vec![];
+
+                for m in subst {
+                    match m {
+                        GenericSubst::Subst(mvar, val) => match val {
+                            SubOrMod::Sub(rnode) => {
+                                mbindings.push(MetavarBinding::from_subs(mvar.clone(), rnode.clone(), false));
+                                //rnode here is an Rc<> so only the reference is copied
+                            }
+                            SubOrMod::Mod(snodes, modifs) => mods.push(modifs),
+                        },
+                        GenericSubst::NegSubst(mvar, val) => match val {
+                            SubOrMod::Sub(rnode) => {
+                                mbindings.push(MetavarBinding::from_subs(mvar.clone(), rnode.clone(), true))
+                            }
+                            SubOrMod::Mod(snodes, modifs) => {
+                                panic!("There shouldnt be mods in NegSubst")
+                            }
+                        },
+                    }
+                }
+                if mbindings.len() != 0 {
+                    assert_eq!(mods.len(), 0);
+
+                    env.addbindings(&mbindings.iter().collect_vec());
+                    todo!()
+                }
+                else {
+                    panic!("Should not come here");
+                }
+            }
+            GenericWitnessTree::NegWit(wit) => aux(wit, env),
+        }
+    }
+
+    // let bindings = 
+}
+
+fn transform(trees: Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+    for tree in trees {
+        for wit in tree {
+            match wit {
+                GenericWitnessTree::Wit(_, wits, _, _) => {
+                    for wit in wits {
+                        match wit {
+                            GenericSubst::Subst(mvar, subs) => match subs {
+                                SubOrMod::Sub(_) => panic!("I do not have the strength today to implement substitutions"),
+                                SubOrMod::Mod(_, mods) => {
+                                    let mut env = Environment::new();
+                                    env.modifiers = mods;
+                                    transformation::transform(rnode, &env);
+                                },
+                            },
+                            GenericSubst::NegSubst(_, _) => todo!(),
+                        }
+                    }
+                },
+                GenericWitnessTree::NegWit(_) => todo!(),
+            }
+        }
+    }
+}
+
 fn run_test(args: &CoccinelleForRust) {
-    let arg = args.dots.split("...");
-    let s = arg.collect_vec();
-    let (s1, s2) = (s[0], s[1]);
+    let contents = fs::read_to_string(&args.coccifile).unwrap();
+    let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
+    // eprintln!("{:?}", snode.kind());
+    let s1 = vec![snodes.remove(0)];
+    let s2 = vec![snodes.remove(0)];
+    // let arg = args.dots.split("...");
+    // let s = arg.collect_vec();
+    // let (s1, s2) = (s[0], s[1]);
+    // let s1 = vec![];
+    // let s2 = vec![];
 
-    let s1 = parse_stmts_snode(s1);
-    let s2 = parse_stmts_snode(s2);
-
-    let p1 = C![Pred, (Predicate::Match(s1.clone()), Modif::<Snode>::Control)];
-    let p2 = C![Pred, (Predicate::Match(s2.clone()), Modif::<Snode>::Control)];
+    // let s1 = parse_stmts_snode(s1);
+    // let s2 = parse_stmts_snode(s2);
+    // s1 & AX A[ !(s1 V s2) U s2]
+    let p1_modif = C![Pred, (Predicate::Match(s1.clone()), Modif::<Vec<Snode>>::Modif(s1.clone()))];
+    let p2_modif = C![Pred, (Predicate::Match(s2.clone()), Modif::<Vec<Snode>>::Modif(s2.clone()))];
+    let p1_unmodif = C![Pred, (Predicate::Match(s1.clone()), Modif::<Vec<Snode>>::Control)];
+    let p2_unmodif = C![Pred, (Predicate::Match(s2.clone()), Modif::<Vec<Snode>>::Control)];
+    let e1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p1_modif.clone()));
+    // let e1 = p1_modif.clone(); 
+    // let e2 = GenericCtl::Exists(true, MetavarName::create_pv(), Box::new(p2.clone()));
+    // let e1 = p1.clone();
+    let e2 = p2_unmodif.clone();
 
     // let f1 = GenericCtl::And(Strict, (Box::new(p1.clone()), Box::new(p2.clone())));
-    let t0 = GenericCtl::Or(Box::new(p1.clone()), Box::new(p2.clone()));
+    let t0 = GenericCtl::Or(Box::new(p1_modif.clone()), Box::new(p2_unmodif.clone()));
     let t1 = C![Not, t0.clone()];
+    let t1_5 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t1.clone()));
     // let ctl = C![AU, Direction::Forward, Strict::Strict, C![Pred, p1], C![Pred, p2]];
-    let t2 = C![AU, Forward, Strict, t1.clone(), p2];
+    let t2 = C![AU, Forward, Strict, t1.clone(), p2_unmodif.clone()];
     let t3 = GenericCtl::AX(Forward, Strict, Box::new(t2.clone()));
-    let t4 = GenericCtl::And(Strict, (Box::new(p1), Box::new(t3)));
+    let t4 = GenericCtl::And(Strict, (Box::new(e1.clone()), Box::new(t3.clone())));
+    let t5 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t4.clone()));
 
     let rfile = fs::read_to_string(&args.targetpath).unwrap();
-    let rnode = processrs(&rfile).unwrap();
-    let rnodes = vec![rnode];
+    let mut rnode = processrs(&rfile).unwrap();
+    let mut rnodes = vec![rnode];
     let flow = ast_to_flow(&rnodes);
     // flow.nodes().iter().for_each(|x| {
     //     if !flow.node(*x).data().is_dummy() {
@@ -442,9 +527,10 @@ fn run_test(args: &CoccinelleForRust) {
     //     } else {
     //         eprint!("{} - DummyNode", x.0);
     //     }
-
+        
     //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
     // });
+
     // flow.nodes().iter().for_each(|x| {
     //     if !flow.node(*x).data().is_dummy() {#
     //         let t = match_nodes(s1.iter().collect_vec(), flow.node(*x).data().rnode(), &vec![]);
@@ -453,10 +539,19 @@ fn run_test(args: &CoccinelleForRust) {
 
     let res = processctl(&t4, &flow, &vec![]);
     if res.len() > 0 {
-        res.iter().for_each(|(x, _, _)| {
+        res.iter().for_each(|(x, _, witf)| {
+            if flow.node(*x).data().is_dummy() {
+                eprintln!("{} -> dummy", x.to_usize());
+                return;
+            }
+            eprintln!("witf - {:?}", witf);
             eprintln!("{} -> {}", x.to_usize(), flow.node(*x).data().rnode().getstring())
         });
     }
+    let trees = res.into_iter().map(|(_, _, wit)| wit).collect_vec();
+    transform(trees, &mut rnodes[0]);
+    // eprintln!("transformed - {}", rnodes[0].getstring());
+    showdiff(args, &mut rnodes[0], &args.targetpath, false);
     // let _ = res.iter().map(|(x, _, _)| {
     //     eprintln!("{} -> {:?}", x.to_usize(), flow.node(*x).data().rnode().getstring());
     // });
@@ -464,7 +559,7 @@ fn run_test(args: &CoccinelleForRust) {
 
 fn main() {
     let args = CoccinelleForRust::parse();
-    if !args.dots.is_empty() {
+    if args.dots.is_some() {
         run_test(&args);
         exit(1);
     }

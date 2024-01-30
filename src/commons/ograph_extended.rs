@@ -1,4 +1,4 @@
-use std::{fmt::{self, Debug}, hash::Hash};
+use std::{fmt::{self, Debug, Display}, hash::Hash};
 
 use itertools::Itertools;
 
