@@ -28,7 +28,7 @@ impl Debug for SubOrMod {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Sub(arg0) => write!(f, "{}", arg0),
-            Self::Mod(arg0, _arg1) => write!(f, "{:?}", arg0),
+            Self::Mod(arg0, arg1) => write!(f, "{:?}", arg1),
         }
     }
 }

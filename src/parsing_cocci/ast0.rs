@@ -310,7 +310,7 @@ pub struct TokenInfo {
     right_offset: usize,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PositionInfo {
     pub line_start: usize,
     pub line_end: usize,
@@ -682,6 +682,7 @@ pub struct Wrap {
     iso_info: Vec<(String, Dummy)>,
     pub isdisj: bool,
     pub mcodekind: Mcodekind,
+    pub is_modded: bool
 }
 
 impl Wrap {
@@ -708,6 +709,7 @@ impl Wrap {
             isdisj: isdisj,
             mcodekind: Mcodekind::Context(vec![], vec![]), //All tokens start out as context
                                                            //before being modified accordingly
+            is_modded: false
         }
     }
 

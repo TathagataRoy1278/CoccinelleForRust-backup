@@ -434,7 +434,7 @@ where
         f::<G, S, P>(s2, s2, &self.reachable_table, dir, dirop).into_iter().rev().collect_vec()
     }
 
-    fn triple_negate(
+    fn triples_negate(
         s: G::Node,
         th: &SubstitutionList<S>,
         wit: &Vec<WitnessTree<G, S, P>>,
@@ -927,7 +927,7 @@ where
             trips.sort();
             let all_negated = trips
                 .into_iter()
-                .map(|(s, th, wit)| Self::triple_negate(s.clone(), &th, &wit))
+                .map(|(s, th, wit)| Self::triples_negate(s.clone(), &th, &wit))
                 .collect_vec();
             let merge_one =
                 |(neg1, pos1): &(Vec<G::Node>, TripleList<G, S, P>),

@@ -420,15 +420,21 @@ fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
                     match m {
                         GenericSubst::Subst(mvar, val) => match val {
                             SubOrMod::Sub(rnode) => {
-                                mbindings.push(MetavarBinding::from_subs(mvar.clone(), rnode.clone(), false));
+                                mbindings.push(MetavarBinding::from_subs(
+                                    mvar.clone(),
+                                    rnode.clone(),
+                                    false,
+                                ));
                                 //rnode here is an Rc<> so only the reference is copied
                             }
                             SubOrMod::Mod(snodes, modifs) => mods.push(modifs),
                         },
                         GenericSubst::NegSubst(mvar, val) => match val {
-                            SubOrMod::Sub(rnode) => {
-                                mbindings.push(MetavarBinding::from_subs(mvar.clone(), rnode.clone(), true))
-                            }
+                            SubOrMod::Sub(rnode) => mbindings.push(MetavarBinding::from_subs(
+                                mvar.clone(),
+                                rnode.clone(),
+                                true,
+                            )),
                             SubOrMod::Mod(snodes, modifs) => {
                                 panic!("There shouldnt be mods in NegSubst")
                             }
@@ -440,8 +446,7 @@ fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
 
                     env.addbindings(&mbindings.iter().collect_vec());
                     todo!()
-                }
-                else {
+                } else {
                     panic!("Should not come here");
                 }
             }
@@ -449,7 +454,7 @@ fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
         }
     }
 
-    // let bindings = 
+    // let bindings =
 }
 
 fn transform(trees: Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
@@ -460,17 +465,19 @@ fn transform(trees: Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                     for wit in wits {
                         match wit {
                             GenericSubst::Subst(mvar, subs) => match subs {
-                                SubOrMod::Sub(_) => panic!("I do not have the strength today to implement substitutions"),
+                                SubOrMod::Sub(_) => panic!(
+                                    "I do not have the strength today to implement substitutions"
+                                ),
                                 SubOrMod::Mod(_, mods) => {
                                     let mut env = Environment::new();
                                     env.modifiers = mods;
                                     transformation::transform(rnode, &env);
-                                },
+                                }
                             },
                             GenericSubst::NegSubst(_, _) => todo!(),
                         }
                     }
-                },
+                }
                 GenericWitnessTree::NegWit(_) => todo!(),
             }
         }
@@ -491,23 +498,32 @@ fn run_test(args: &CoccinelleForRust) {
 
     // let s1 = parse_stmts_snode(s1);
     // let s2 = parse_stmts_snode(s2);
-    // s1 & AX A[ !(s1 V s2) U s2]
+    // s1_ & AX A[ !(s1 V s2) U s2]
     let p1_modif = C![Pred, (Predicate::Match(s1.clone()), Modif::<Vec<Snode>>::Modif(s1.clone()))];
     let p2_modif = C![Pred, (Predicate::Match(s2.clone()), Modif::<Vec<Snode>>::Modif(s2.clone()))];
     let p1_unmodif = C![Pred, (Predicate::Match(s1.clone()), Modif::<Vec<Snode>>::Control)];
     let p2_unmodif = C![Pred, (Predicate::Match(s2.clone()), Modif::<Vec<Snode>>::Control)];
     let e1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p1_modif.clone()));
-    // let e1 = p1_modif.clone(); 
+    // let e1 = p1_modif.clone();
     // let e2 = GenericCtl::Exists(true, MetavarName::create_pv(), Box::new(p2.clone()));
     // let e1 = p1.clone();
     let e2 = p2_unmodif.clone();
 
     // let f1 = GenericCtl::And(Strict, (Box::new(p1.clone()), Box::new(p2.clone())));
-    let t0 = GenericCtl::Or(Box::new(p1_modif.clone()), Box::new(p2_unmodif.clone()));
+    let yy1 = if s1[0].wrapper.is_modded {
+        eprintln!("modif");
+        p1_modif.clone()
+    } else {
+        p1_modif.clone()
+    };
+
+    let yy2 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p2_modif.clone()));
+    let t0 = GenericCtl::Or(Box::new(yy1), Box::new(p2_unmodif.clone()));
     let t1 = C![Not, t0.clone()];
-    let t1_5 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t1.clone()));
+    // let t1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t1.clone()));
     // let ctl = C![AU, Direction::Forward, Strict::Strict, C![Pred, p1], C![Pred, p2]];
-    let t2 = C![AU, Forward, Strict, t1.clone(), p2_unmodif.clone()];
+    let t2 = C![AU, Forward, Strict, t1.clone(), yy2];
+    // let t2 = C![AU, Forward, Strict, t1.clone(), p2_unmodif.clone()];
     let t3 = GenericCtl::AX(Forward, Strict, Box::new(t2.clone()));
     let t4 = GenericCtl::And(Strict, (Box::new(e1.clone()), Box::new(t3.clone())));
     let t5 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t4.clone()));
@@ -527,7 +543,7 @@ fn run_test(args: &CoccinelleForRust) {
     //     } else {
     //         eprint!("{} - DummyNode", x.0);
     //     }
-        
+
     //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
     // });
 

@@ -12,7 +12,7 @@ use core::panic;
 ///
 /// _context_
 /// (+/-) code
-use std::{collections::HashSet, rc::Rc, vec};
+use std::{collections::HashSet, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
@@ -134,13 +134,15 @@ impl Patch {
                                     modifier
                                 );
                             } //debugend
-
+                            
+                            node.wrapper.is_modded = true;
                             node.wrapper.mcodekind = modifier.clone();
                             return (lino, modifier);
                             //everytime lino is not 0, modkind is
                             //a Some value
                         } else if start == lino && start != end {
                             //this node spills onto the next line
+                            node.wrapper.is_modded = true;
                             return (lino, modifier.clone());
                         }
                         return (0, Mcodekind::Context(vec![], vec![]));
@@ -158,6 +160,8 @@ impl Patch {
                                 );
                             } //debugend
 
+                            node.wrapper.is_modded = true;
+                            //already marked pre mod setting
                             //node.wrapper.mcodekind = modifier.clone();
                             return (start, node.wrapper.mcodekind.clone());
                         } else {
