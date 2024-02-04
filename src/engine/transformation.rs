@@ -20,7 +20,7 @@ use crate::{
     },
     parsing_rs::{
         ast_rs::{Rnode, Wrap},
-        parse_rs::processrs,
+        parse_rs::processrs_old,
     },
 };
 
@@ -191,7 +191,7 @@ pub fn transformrnode(rules: &Vec<Rule>, rnode: Rnode) -> Result<Rnode, ParseErr
         debugcocci!("After trimming {:?}", savedbindings);
 
         let transformedstring = transformedcode.getunformatted();
-        transformedcode = match processrs(&transformedstring) {
+        transformedcode = match processrs_old(&transformedstring) {
             Ok(node) => node,
             Err(errors) => {
                 return Err(ParseError::RULEERROR(rule.name.clone(), errors, transformedstring));
@@ -210,7 +210,7 @@ pub fn transformrnode(rules: &Vec<Rule>, rnode: Rnode) -> Result<Rnode, ParseErr
 }
 
 pub fn transformfile(rules: &Vec<Rule>, rustcode: String) -> Result<Rnode, ParseError> {
-    let parsedrnode = processrs(&rustcode);
+    let parsedrnode = processrs_old(&rustcode);
     let transformedcode: Rnode = match parsedrnode {
         Ok(node) => node,
         Err(errors) => {

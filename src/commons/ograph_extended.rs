@@ -1,4 +1,7 @@
-use std::{fmt::{self, Debug, Display}, hash::Hash};
+use std::{
+    fmt::{self, Debug, Display},
+    hash::Hash,
+};
 
 use itertools::Itertools;
 
@@ -27,10 +30,10 @@ impl EdgeIndex {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum EdgeType {
     Default,
-    Children,
+    NextSibling,
 }
 
 // impl Into<usize> for EdgeIndex {
@@ -157,7 +160,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
         }
 
         self.edges.push(edge);
-        nei+=1;
+        nei += 1;
         match self.nodes[succ.to_usize()].first_in_edge {
             None => {
                 self.nodes[succ.to_usize()].first_in_edge = Some(EdgeIndex(nei));
@@ -202,7 +205,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
             loei = Some(EdgeIndex(nei));
 
             self.edges.push(edge);
-            nei+=1;
+            nei += 1;
             match self.nodes[succ.to_usize()].first_in_edge {
                 None => {
                     self.nodes[succ.to_usize()].first_in_edge = Some(EdgeIndex(nei));
@@ -218,7 +221,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
         }
     }
 
-    pub fn successors(&'a self, source: NodeIndex) -> Vec<NodeIndex> {
+    pub fn successors_and_edges(&'a self, source: NodeIndex) -> Vec<(NodeIndex, EdgeType)> {
         let first_o_edge = self.nodes[source.to_usize()].first_out_edge;
         let iter = Successors { graph: self, current_edge_index: first_o_edge };
 
@@ -230,13 +233,37 @@ impl<'a, K: Clone + Hash> Graph<K> {
         return ret;
     }
 
-    pub fn predecessors(&self, source: NodeIndex) -> Vec<NodeIndex> {
+    pub fn predecessors_and_edges(&self, source: NodeIndex) -> Vec<(NodeIndex, EdgeType)> {
         let first_i_edge = self.nodes[source.to_usize()].first_in_edge;
         let iter = Predecessors { graph: self, current_edge_index: first_i_edge };
 
         let mut ret = vec![];
         for i in iter {
             ret.push(i);
+        }
+
+        return ret;
+    }
+
+    pub fn successors(&'a self, source: NodeIndex) -> Vec<NodeIndex> {
+        let first_o_edge = self.nodes[source.to_usize()].first_out_edge;
+        let iter = Successors { graph: self, current_edge_index: first_o_edge };
+
+        let mut ret = vec![];
+        for i in iter {
+            ret.push(i.0);
+        }
+
+        return ret;
+    }
+
+    pub fn predecessors(&self, source: NodeIndex) -> Vec<NodeIndex> {
+        let first_i_edge = self.nodes[source.to_usize()].first_in_edge;
+        let iter = Predecessors { graph: self, current_edge_index: first_i_edge };
+
+        let mut ret = vec![];
+        for i in iter {
+            ret.push(i.0);
         }
 
         return ret;
@@ -249,7 +276,7 @@ pub struct Successors<'graph, K: Hash> {
 }
 
 impl<'graph, K: Hash> Iterator for Successors<'graph, K> {
-    type Item = NodeIndex;
+    type Item = (NodeIndex, EdgeType);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.current_edge_index {
@@ -257,12 +284,11 @@ impl<'graph, K: Hash> Iterator for Successors<'graph, K> {
             Some(edge_num) => {
                 let edge = &self.graph.edges[edge_num.to_usize()];
                 self.current_edge_index = edge.next_edge;
-                Some(edge.target)
+                Some((edge.target, edge.edgetype))
             }
         }
     }
 }
-
 
 pub struct Predecessors<'graph, K: Hash> {
     graph: &'graph Graph<K>,
@@ -270,7 +296,7 @@ pub struct Predecessors<'graph, K: Hash> {
 }
 
 impl<'graph, K: Hash> Iterator for Predecessors<'graph, K> {
-    type Item = NodeIndex;
+    type Item = (NodeIndex, EdgeType);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.current_edge_index {
@@ -278,7 +304,7 @@ impl<'graph, K: Hash> Iterator for Predecessors<'graph, K> {
             Some(edge_num) => {
                 let edge = &self.graph.edges[edge_num.to_usize()];
                 self.current_edge_index = edge.next_edge;
-                Some(edge.origin)
+                Some((edge.origin, edge.edgetype))
             }
         }
     }

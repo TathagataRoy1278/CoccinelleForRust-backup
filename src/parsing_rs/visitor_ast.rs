@@ -7,7 +7,7 @@ use std::vec;
 
 use crate::commons::util::{attach_spaces_left, attach_spaces_right, workrnode};
 
-use super::{ast_rs::Rnode, parse_rs::processrs};
+use super::{ast_rs::Rnode, parse_rs::processrs_old};
 type Tag = SyntaxKind;
 
 fn ttree_to_expr_list(tt: String) -> Option<Vec<Rnode>> {
@@ -18,7 +18,7 @@ fn ttree_to_expr_list(tt: String) -> Option<Vec<Rnode>> {
         tt
     );
 
-    let mut rnode = match processrs(&wrapped) {
+    let mut rnode = match processrs_old(&wrapped) {
         Ok(node) => node,
         Err(_) => {
             //In this case the macro is not function like

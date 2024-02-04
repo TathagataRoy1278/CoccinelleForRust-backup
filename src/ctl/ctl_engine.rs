@@ -83,7 +83,7 @@ pub trait Subs {
 }
 
 pub trait Pred {
-    type ty: Clone + Eq + Ord + Hash;
+    type ty: Clone + Eq + Ord + Hash + Display;
 }
 
 enum WitAnnoTree<A> {
@@ -1796,7 +1796,7 @@ where
                     let (child, res) = satv!(unchecked, &new_required, required_states, phi, env);
                     anno(Self::triples_witness(self, &v, unchecked, !keep, &res), vec![child])
                 }
-                GenericCtl::And(strict, (phi1, phi2)) => {
+                GenericCtl::And(strict, phi1, phi2) => {
                     let pm = !false; //PARTIAL_MATCH
                     match (pm, satv!(unchecked, required, required_states, phi1, env)) {
                         (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),

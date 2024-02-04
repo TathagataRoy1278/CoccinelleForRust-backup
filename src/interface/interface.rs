@@ -51,4 +51,13 @@ pub struct CoccinelleForRust {
     /// strategy for identifying files that may be matched by the semantic patch
     #[arg(long, value_enum, default_value_t = get_constants::Scanner::CocciGrep)]
     pub worth_trying: get_constants::Scanner,
+
+
+    /// Exports the cfg in current directory as cfg.png and opens it
+    /// Note that this uses graphviz for writing and w3m for viewing
+    #[arg(long)]
+    pub show_cfg: bool,
+
+    #[arg(long)]
+    pub show_ctl: bool
 }

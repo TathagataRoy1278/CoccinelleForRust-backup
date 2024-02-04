@@ -2,6 +2,7 @@
 
 use clap::builder::Str;
 use clap::Parser;
+use coccinelleforrust::commons::graphviz::make_graphviz;
 use coccinelleforrust::commons::info::ParseError::*;
 use coccinelleforrust::commons::util::{attach_spaces_right, getstmtlist};
 use coccinelleforrust::ctl::ctl_ast::{
@@ -10,13 +11,14 @@ use coccinelleforrust::ctl::ctl_ast::{
 };
 use coccinelleforrust::ctl::ctl_ast::{GenericSubst, GenericWitnessTree, Modif};
 use coccinelleforrust::ctl::ctl_engine::{Pred, Subs};
+use coccinelleforrust::ctl::wrapper_ctl::make_ctl_simple;
 use coccinelleforrust::engine::cocci_vs_rs::{match_nodes, Environment, Modifiers};
 use coccinelleforrust::engine::ctl_cocci::{self, processctl, CWitnessTree, Predicate, SubOrMod};
 use coccinelleforrust::parsing_cocci::ast0::MetavarName;
 use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
-use coccinelleforrust::parsing_rs::control_flow::ast_to_flow;
+use coccinelleforrust::parsing_rs::control_flow::{ast_to_flow, asts_to_flow, Rflow};
 use coccinelleforrust::parsing_rs::parse_rs::{
-    parse_stmts_snode, processrs, processrswithsemantics,
+    parse_stmts_snode, processrs, processrs_old, processrswithsemantics,
 };
 use coccinelleforrust::parsing_rs::type_inference::{gettypedb, set_types};
 use coccinelleforrust::{debugcocci, C};
@@ -198,7 +200,7 @@ fn getformattedfile(
         //  eprintln!("Formatting failed.");
         //}
         let formattednode =
-            match processrs(&fs::read_to_string(&randrustfile).expect("Could not read")) {
+            match processrs_old(&fs::read_to_string(&randrustfile).expect("Could not read")) {
                 Ok(rnode) => rnode,
                 Err(_) => {
                     panic!("Cannot parse temporary file.");
@@ -485,53 +487,122 @@ fn transform(trees: Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
 }
 
 fn run_test(args: &CoccinelleForRust) {
+    // let contents = fs::read_to_string(&args.coccifile).unwrap();
+    // let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
+    // let st = snodes.clone();
+    // // eprintln!("{:?}", snode.kind());
+    // let s1 = snodes.remove(0);
+    // let s2 = s1.clone();
+    // // let s2 = snodes.remove(0);
+    // // let arg = args.dots.split("...");
+    // // let s = arg.collect_vec();
+    // // let (s1, s2) = (s[0], s[1]);
+    // // let s1 = vec![];
+    // // let s2 = vec![];
+
+    // // let s1 = parse_stmts_snode(s1);
+    // // let s2 = parse_stmts_snode(s2);
+    // // s1_ & AX A[ !(s1 V s2) U s2]
+    // let p1_modif = GeneircCtl::Pred(Predicate::Match(s1.clone(), Modif::<Snode>::Modif(s1.clone())));
+    // let p2_modif = C![Pred, Predicate::Match(s2.clone(), Modif::<Snode>::Modif(s2.clone()))];
+    // let p1_unmodif = C![Pred, Predicate::Match(s1.clone(), Modif::<Snode>::Control)];
+    // let p2_unmodif = C![Pred, Predicate::Match(s2.clone(), Modif::<Snode>::Control)];
+    // let e1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p1_modif.clone()));
+    // // let e1 = p1_modif.clone();
+    // // let e2 = GenericCtl::Exists(true, MetavarName::create_pv(), Box::new(p2.clone()));
+    // // let e1 = p1.clone();
+    // let e2 = p2_unmodif.clone();
+
+    // // let f1 = GenericCtl::And(Strict, (Box::new(p1.clone()), Box::new(p2.clone())));
+    // let yy1 = if s1.wrapper.is_modded {
+    //     eprintln!("modif");
+    //     p1_modif.clone()
+    // } else {
+    //     p1_modif.clone()
+    // };
+
+    // let yy2 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p2_modif.clone()));
+    // let t0 = GenericCtl::Or(Box::new(yy1), Box::new(p2_unmodif.clone()));
+    // let t1 = C![Not, t0.clone()];
+    // // let t1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t1.clone()));
+    // // let ctl = C![AU, Direction::Forward, Strict::Strict, C![Pred, p1], C![Pred, p2]];
+    // let t2 = C![AU, Forward, Strict, t1.clone(), yy2];
+    // // let t2 = C![AU, Forward, Strict, t1.clone(), p2_unmodif.clone()];
+    // let t3 = GenericCtl::AX(Forward, Strict, Box::new(t2.clone()));
+    // let t4 = GenericCtl::And(Strict, Box::new(e1.clone()), Box::new(t3.clone()));
+    // let t5 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t4.clone()));
+
+    // let rfile = fs::read_to_string(&args.targetpath).unwrap();
+    // let mut rnode = processrs_old(&rfile).unwrap();
+    // let mut rnodes = vec![rnode];
+    // let flow = ast_to_flow(&rnodes);
+
+    // if args.show_cfg {
+    //     show_cfg(&flow);
+    // }
+
+    // if args.show_ctl {
+    //     let a = make_ctl_simple(st);
+    //     eprintln!("CTL - {}", a);
+    // }
+    // // make_graphviz(&flow, "/home/troy/tmp/tmp.gviz");
+    // // flow.nodes().iter().for_each(|x| {
+    // //     if !flow.node(*x).data().is_dummy() {
+    // //         eprint!(
+    // //             "{}:{:?} - {:?}",
+    // //             x.0,
+    // //             flow.node(*x).data().rnode().kind(),
+    // //             flow.node(*x).data().rnode().getstring()
+    // //         );
+    // //     } else {
+    // //         eprint!("{} - DummyNode", x.0);
+    // //     }
+
+    // //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
+    // // });
+
+    // let res = processctl(&t4, &flow, &vec![]);
+    // if res.len() > 0 {
+    //     res.iter().for_each(|(x, _, witf)| {
+    //         if flow.node(*x).data().is_dummy() {
+    //             eprintln!("{} -> dummy", x.to_usize());
+    //             return;
+    //         }
+    //         eprintln!("witf - {:?}", witf);
+    //         eprintln!("{} -> {}", x.to_usize(), flow.node(*x).data().rnode().getstring())
+    //     });
+    // }
+    // let trees = res.into_iter().map(|(_, _, wit)| wit).collect_vec();
+    // transform(trees, &mut rnodes[0]);
+    // // eprintln!("transformed - {}", rnodes[0].getstring());
+    // showdiff(args, &mut rnodes[0], &args.targetpath, false);
+    // // let _ = res.iter().map(|(x, _, _)| {
+    // //     eprintln!("{} -> {:?}", x.to_usize(), flow.node(*x).data().rnode().getstring());
+    // // });
+}
+
+fn run_test_tmp(args: &CoccinelleForRust) {
     let contents = fs::read_to_string(&args.coccifile).unwrap();
     let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
-    // eprintln!("{:?}", snode.kind());
-    let s1 = vec![snodes.remove(0)];
-    let s2 = vec![snodes.remove(0)];
-    // let arg = args.dots.split("...");
-    // let s = arg.collect_vec();
-    // let (s1, s2) = (s[0], s[1]);
-    // let s1 = vec![];
-    // let s2 = vec![];
-
-    // let s1 = parse_stmts_snode(s1);
-    // let s2 = parse_stmts_snode(s2);
-    // s1_ & AX A[ !(s1 V s2) U s2]
-    let p1_modif = C![Pred, (Predicate::Match(s1.clone()), Modif::<Vec<Snode>>::Modif(s1.clone()))];
-    let p2_modif = C![Pred, (Predicate::Match(s2.clone()), Modif::<Vec<Snode>>::Modif(s2.clone()))];
-    let p1_unmodif = C![Pred, (Predicate::Match(s1.clone()), Modif::<Vec<Snode>>::Control)];
-    let p2_unmodif = C![Pred, (Predicate::Match(s2.clone()), Modif::<Vec<Snode>>::Control)];
-    let e1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p1_modif.clone()));
-    // let e1 = p1_modif.clone();
-    // let e2 = GenericCtl::Exists(true, MetavarName::create_pv(), Box::new(p2.clone()));
-    // let e1 = p1.clone();
-    let e2 = p2_unmodif.clone();
-
-    // let f1 = GenericCtl::And(Strict, (Box::new(p1.clone()), Box::new(p2.clone())));
-    let yy1 = if s1[0].wrapper.is_modded {
-        eprintln!("modif");
-        p1_modif.clone()
-    } else {
-        p1_modif.clone()
-    };
-
-    let yy2 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(p2_modif.clone()));
-    let t0 = GenericCtl::Or(Box::new(yy1), Box::new(p2_unmodif.clone()));
-    let t1 = C![Not, t0.clone()];
-    // let t1 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t1.clone()));
-    // let ctl = C![AU, Direction::Forward, Strict::Strict, C![Pred, p1], C![Pred, p2]];
-    let t2 = C![AU, Forward, Strict, t1.clone(), yy2];
-    // let t2 = C![AU, Forward, Strict, t1.clone(), p2_unmodif.clone()];
-    let t3 = GenericCtl::AX(Forward, Strict, Box::new(t2.clone()));
-    let t4 = GenericCtl::And(Strict, (Box::new(e1.clone()), Box::new(t3.clone())));
-    let t5 = GenericCtl::Exists(true, MetavarName::create_v(), Box::new(t4.clone()));
+    let st = snodes.clone();
 
     let rfile = fs::read_to_string(&args.targetpath).unwrap();
-    let mut rnode = processrs(&rfile).unwrap();
-    let mut rnodes = vec![rnode];
-    let flow = ast_to_flow(&rnodes);
+    let rnodes = processrs(&rfile).unwrap();
+    let rnodes = rnodes.into_iter().map(|x| vec![x]).collect_vec();
+    // let rnodes = rnodes.into_iter()
+    let flows = asts_to_flow(&rnodes);
+
+    let a = make_ctl_simple(st);
+
+    if args.show_cfg {
+        show_cfg(&flows[0]);
+    }
+
+    if args.show_ctl {
+        eprintln!("CTL - {}", a);
+    }
+
+    // let flow = &flows[0];
     // flow.nodes().iter().for_each(|x| {
     //     if !flow.node(*x).data().is_dummy() {
     //         eprint!(
@@ -543,40 +614,37 @@ fn run_test(args: &CoccinelleForRust) {
     //     } else {
     //         eprint!("{} - DummyNode", x.0);
     //     }
-
     //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
     // });
 
-    // flow.nodes().iter().for_each(|x| {
-    //     if !flow.node(*x).data().is_dummy() {#
-    //         let t = match_nodes(s1.iter().collect_vec(), flow.node(*x).data().rnode(), &vec![]);
-    //     }
-    // });
-
-    let res = processctl(&t4, &flow, &vec![]);
-    if res.len() > 0 {
-        res.iter().for_each(|(x, _, witf)| {
-            if flow.node(*x).data().is_dummy() {
-                eprintln!("{} -> dummy", x.to_usize());
-                return;
-            }
-            eprintln!("witf - {:?}", witf);
-            eprintln!("{} -> {}", x.to_usize(), flow.node(*x).data().rnode().getstring())
-        });
+    for flow in flows {
+        let res = processctl(&a, &flow, &vec![]);
+        eprintln!("{:?}", res);
     }
-    let trees = res.into_iter().map(|(_, _, wit)| wit).collect_vec();
-    transform(trees, &mut rnodes[0]);
-    // eprintln!("transformed - {}", rnodes[0].getstring());
-    showdiff(args, &mut rnodes[0], &args.targetpath, false);
-    // let _ = res.iter().map(|(x, _, _)| {
-    //     eprintln!("{} -> {:?}", x.to_usize(), flow.node(*x).data().rnode().getstring());
-    // });
+    // make_graphviz(&flow, "/home/troy/tmp/tmp.gviz");
+    
+}
+
+fn show_cfg(flow: &Rflow) {
+    make_graphviz(flow, "/tmp/.cfg.dot");
+
+    Command::new("dot")
+        .arg("-Tjpg")
+        .arg("-o")
+        .arg("/tmp/cfg.jpg")
+        .arg("/tmp/.cfg.dot")
+        .status()
+        .expect("Could not run dot");
+
+    Command::new("xdg-open").arg("/tmp/cfg.jpg").status().expect("Could not run image-viewer.");
+
+    let _ = fs::remove_file("/tmp/.cfg.dot");
 }
 
 fn main() {
     let args = CoccinelleForRust::parse();
     if args.dots.is_some() {
-        run_test(&args);
+        run_test_tmp(&args);
         exit(1);
     }
 

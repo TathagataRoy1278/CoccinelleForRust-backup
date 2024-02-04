@@ -1,9 +1,12 @@
 use std::fmt::Debug;
-use std::rc::Rc;
+use std::fmt::Display;
 use std::hash::Hash;
+use std::rc::Rc;
 
 use itertools::Itertools;
+use ra_parser::SyntaxKind;
 
+use crate::commons::ograph_extended::EdgeType;
 use crate::commons::ograph_extended::{self, NodeIndex};
 use crate::ctl::ctl_ast::{GenericCtl, GenericSubst, GenericSubstList, Modif};
 use crate::ctl::ctl_engine::{self, Graph, Pred, Subs, TripleList, WitnessTree, CTL_ENGINE};
@@ -19,7 +22,7 @@ use super::cocci_vs_rs::{Looper, MetavarBinding, Modifiers};
 #[derive(Clone, PartialEq, Eq)]
 pub enum SubOrMod {
     Sub(Rc<Rnode>),
-    Mod(Vec<Snode>, Modifiers),
+    Mod(Snode, Modifiers),
 }
 
 type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, SubOrMod>;
@@ -54,11 +57,19 @@ impl<'a> Graph for Rflow<'a> {
     type Node = NodeIndex;
 
     fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
-        cfg.predecessors(*node)
+        let preds = cfg.predecessors_and_edges(*node);
+        preds
+            .into_iter()
+            .filter_map(|(x, et)| if et == EdgeType::Default { Some(x) } else { None })
+            .collect_vec()
     }
 
     fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
-        cfg.successors(*node)
+        let succs = cfg.successors_and_edges(*node);
+        succs
+            .into_iter()
+            .filter_map(|(x, et)| if et == EdgeType::Default { Some(x) } else { None })
+            .collect_vec()
     }
 
     fn nodes(cfg: &Self::Cfg) -> Vec<Self::Node> {
@@ -66,11 +77,19 @@ impl<'a> Graph for Rflow<'a> {
     }
 
     fn direct_predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
-        cfg.predecessors(*node)
+        let preds = cfg.predecessors_and_edges(*node);
+        preds
+            .into_iter()
+            .filter_map(|(x, et)| if et == EdgeType::Default { Some(x) } else { None })
+            .collect_vec()
     }
 
     fn direct_successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
-        cfg.successors(*node)
+        let succs = cfg.successors_and_edges(*node);
+        succs
+            .into_iter()
+            .filter_map(|(x, et)| if et == EdgeType::Default { Some(x) } else { None })
+            .collect_vec()
     }
 
     fn extract_is_loop(cfg: &Self::Cfg, node: &Self::Node) -> bool {
@@ -85,7 +104,21 @@ impl<'a> Graph for Rflow<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Predicate {
-    Match(Vec<Snode>),
+    Match(Snode, Modif<Snode>),
+    Kind(SyntaxKind),
+}
+
+impl Display for Predicate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Predicate::Match(node, modif) => {
+                write!(f, "{} {}", node.getstring(), modif)
+            }
+            Predicate::Kind(kind) => {
+                write!(f, "{:?} ", kind)
+            }
+        }
+    }
 }
 
 pub enum MVar<'a> {
@@ -93,9 +126,10 @@ pub enum MVar<'a> {
 }
 
 impl Pred for Predicate {
-    type ty = (Predicate, Modif<Vec<Snode>>);
+    type ty = Predicate;
 }
 
+//Functions
 fn create_subs(s: MetavarBinding) -> Substitution {
     return GenericSubst::Subst(s.metavarinfo, SubOrMod::Sub(s.rnode));
 }
@@ -118,14 +152,15 @@ fn labels_for_ctl<'a>() -> fn(
         p: &<Predicate as Pred>::ty,
     ) -> TripleList<Rflow<'a>, Substitution, Predicate> {
         match &p {
-            (Predicate::Match(snode), modif) => {
+            Predicate::Match(snode, modif) => {
                 flow.nodes().iter().fold(vec![], |mut prev, node| {
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
                         let rnode = flow.node(*node).data().rnode();
-                        let env = match_nodes(snode.iter().collect_vec(), rnode, &vec![]);
+                        let env = match_nodes(vec![snode], rnode, &vec![]);
                         if !env.failed {
+                            // eprintln!("matches {}", rnode.getstring());
                             // if snode
                             let mut t = vec![];
                             if modif.ismodif() {
@@ -137,9 +172,22 @@ fn labels_for_ctl<'a>() -> fn(
                             t.extend(
                                 env.bindings.into_iter().map(|s| create_subs(s)).collect_vec(),
                             );
-                            let sub = (NodeIndex(node.to_usize()), t, vec![]);
+                            let sub = (node.clone(), t, vec![]);
 
                             prev.push(sub);
+                        }
+                        prev
+                    }
+                })
+            }
+            Predicate::Kind(kind) => {
+                // eprintln!("krodher agun {:?}", kind);
+                flow.nodes().iter().fold(vec![], |mut prev, node| {
+                    if flow.node(*node).data().is_dummy() {
+                        prev
+                    } else {
+                        if flow.node(*node).data().rnode().kind().eq(kind) {
+                            prev.push((node.clone(), vec![], vec![]))
                         }
                         prev
                     }

@@ -2,6 +2,7 @@ use itertools::Itertools;
 
 use crate::commons::ograph_extended::{EdgeType, Graph, NodeData, NodeIndex};
 use crate::parsing_rs::ast_rs::Rnode;
+use std::fmt::Debug;
 
 // enum Node1<'a> {
 //     TopNode,
@@ -44,6 +45,18 @@ impl<'a> Node<'a> {
             Node::EndNode => true,
         }
     }
+
+    pub fn getstring(&self) -> String {
+        if self.is_dummy() {
+            return String::from("Dummy;");
+        } else {
+            if self.rnode().children.is_empty() {
+                format!("{}", self.rnode().getstring())
+            } else {
+                format!("{:?}", self.rnode().kind())
+            }
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -59,6 +72,12 @@ impl<'a> NodeWrap<'a> {
 
     pub fn info(&self) -> NodeInfo {
         return self.info.clone();
+    }
+}
+
+impl<'a> Debug for NodeWrap<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", &self.rnode.getstring()[..10])
     }
 }
 
@@ -89,15 +108,29 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
         rnodes: &'a Vec<Rnode>,
         label: usize,
     ) -> Option<NodeIndex> {
+        let mut prev_sib = None;
+
         let label = label << 1;
         if rnodes.is_empty() {
             return None;
         }
 
-        for rnode in rnodes {
+        let mut rnodes = rnodes.iter().peekable();
+
+        while rnodes.peek().is_some() {
+            let rnode = match rnodes.next() {
+                Some(rnode) => rnode,
+                None => break,
+            };
+
             let node = make_node(label, rnode);
             let ind = graph.add_node(node);
             graph.add_edge(prev, ind, EdgeType::Default);
+            //creates edge between the current node and the previous node
+
+            if let Some(prev_sib) = prev_sib {
+                graph.add_edge(prev_sib, ind, EdgeType::NextSibling);
+            }
 
             let inds = make_graph(ind, graph, &rnode.children, label);
             match inds {
@@ -108,6 +141,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                     prev = ind;
                 }
             }
+            prev_sib = Some(ind);
         }
 
         return Some(prev);
@@ -124,6 +158,10 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
     graph.add_edge(ind, ind, EdgeType::Default);
 
     return graph;
+}
+
+pub fn asts_to_flow<'a>(rnode: &'a Vec<Vec<Rnode>>) -> Vec<Graph<Node<'a>>> {
+    rnode.iter().map(|rnodes| ast_to_flow(rnodes)).collect_vec()
 }
 
 // pub fn ast_to_flow_tmp<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {

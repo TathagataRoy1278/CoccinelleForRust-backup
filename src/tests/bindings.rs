@@ -9,7 +9,7 @@ use crate::{
         disjunctions::{getdisjunctions, Disjunction},
     },
     parsing_cocci::{ast0::Snode, parse_cocci::processcocci},
-    parsing_rs::{ast_rs::Rnode, parse_rs::processrs},
+    parsing_rs::{ast_rs::Rnode, parse_rs::processrs_old},
 };
 fn tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
     // this is
@@ -52,7 +52,7 @@ fn testfile(cocci: &str, rs: &str, gbindings: Vec<Vec<(&str, &str)>>) {
     //set_logilines(&mut rules);
 
     let (mut rules, _, _) = processcocci(&patchstring);
-    let rnode = processrs(&rustcode).ok().unwrap();
+    let rnode = processrs_old(&rustcode).ok().unwrap();
 
     let looper = Looper::new(tokenf);
     let a: Disjunction =
