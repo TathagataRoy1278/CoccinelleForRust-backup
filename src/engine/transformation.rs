@@ -70,6 +70,7 @@ fn snodetornode(snodes: Vec<Snode>, env: &Environment) -> Vec<Rnode> {
 }
 
 pub fn transform(node: &mut Rnode, env: &Environment) {
+    eprintln!("env : {:?}", env);
     let transformmods = &mut |x: &mut Rnode| -> bool {
         let mut shouldgodeeper: bool = false;
         let pos = x.getpos();

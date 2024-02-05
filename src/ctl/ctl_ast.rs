@@ -148,12 +148,12 @@ impl<Pred: Display, Mvar, Anno> Display for GenericCtl<Pred, Mvar, Anno> {
 // impl Debug for GenericCtl<>
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum GenericSubst<Mvar: Clone, Value: Clone> {
+pub enum GenericSubst<Mvar: Clone + Eq, Value: Clone + Eq> {
     Subst(Mvar, Value),
     NegSubst(Mvar, Value),
 }
 
-impl<Mvar: Clone, Val: Clone> GenericSubst<Mvar, Val> {
+impl<Mvar: Clone + Eq, Val: Clone + Eq> GenericSubst<Mvar, Val> {
     pub fn neg(&self) -> GenericSubst<Mvar, Val> {
         match self.clone() {
             GenericSubst::Subst(a, b) => GenericSubst::NegSubst(a, b),
@@ -257,43 +257,43 @@ impl<G: Eq + Clone + Debug, S: Eq + Clone + Ord + Debug, P: Eq + Clone> Debug
 pub type GenericWitnessTreeList<A, B, C> = Vec<GenericWitnessTree<A, B, C>>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub enum Modif<T> {
-    Modif(T),
-    Unmodif(T),
+pub enum Modif {
+    Modif,
+    Unmodif,
     Control,
 }
 
-impl<T> Modif<T> {
+impl Modif {
     pub fn ismodif(&self) -> bool {
         match self {
-            Modif::Modif(_) => true,
-            Modif::Unmodif(_) => false,
+            Modif::Modif => true,
+            Modif::Unmodif => false,
             Modif::Control => false,
         }
     }
 
     pub fn isunmodif(&self) -> bool {
         match self {
-            Modif::Modif(_) => false,
-            Modif::Unmodif(_) => true,
+            Modif::Modif => false,
+            Modif::Unmodif => true,
             Modif::Control => false,
         }
     }
 
     pub fn iscontrol(&self) -> bool {
         match self {
-            Modif::Modif(_) => false,
-            Modif::Unmodif(_) => false,
+            Modif::Modif => false,
+            Modif::Unmodif => false,
             Modif::Control => true,
         }
     }
 }
 
-impl<T> Display for Modif<T> {
+impl Display for Modif {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Modif::Modif(_) => write!(f, "modif"),
-            Modif::Unmodif(_) => Ok(()),
+            Modif::Modif => write!(f, "modif"),
+            Modif::Unmodif => Ok(()),
             Modif::Control => write!(f, "control"),
         }
     }
@@ -301,7 +301,7 @@ impl<T> Display for Modif<T> {
 
 pub type GenericSubstList<Mvar, Value: Clone> = Vec<GenericSubst<Mvar, Value>>;
 
-impl<Mvar: Clone, Value: Clone> GenericSubst<Mvar, Value> {
+impl<Mvar: Clone + Eq, Value: Clone + Eq> GenericSubst<Mvar, Value> {
     pub fn mvar(&self) -> &Mvar {
         match self {
             GenericSubst::Subst(x, _) => x,

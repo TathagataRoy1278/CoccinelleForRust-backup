@@ -200,8 +200,6 @@ impl Rnode {
             let mut dat = plusaft.getstring();
             dat = remexspaces(dat);
             data.push_str(&dat);
-            //    println!("plusaft - {:?}", self.astnode.to_string());
-            data.push_str(&dat);
         }
 
         return data;

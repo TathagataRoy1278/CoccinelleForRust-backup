@@ -591,6 +591,13 @@ impl MetaVar {
         }
     }
 
+    pub fn ismeta(&self) -> bool {
+        match self {
+            MetaVar::NoMeta => false,
+            _ => true,
+        }
+    }
+
     pub fn makeinherited(&self) -> MetaVar {
         let mut inhertited = self.clone();
         match &mut inhertited {
@@ -681,7 +688,7 @@ pub struct Wrap {
     pub true_if_test_exp: bool,
     iso_info: Vec<(String, Dummy)>,
     pub isdisj: bool,
-    pub mcodekind: Mcodekind,
+    pub mcodekind: Mcodekind, //McodeKind contains the plusses if any
     pub is_modded: bool
 }
 

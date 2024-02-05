@@ -30,7 +30,7 @@ impl EdgeIndex {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum EdgeType {
     Default,
     NextSibling,

@@ -20,9 +20,9 @@ use super::{
 // pub type WrappedCtl<Pred, Mvar> = GenericCtl<(Pred, Modif<Mvar>), Mvar, usize>;
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum WrappedBinding<Pred, Value> {
+pub enum WrappedBinding<Value> {
     ClassicVal(Value),
-    PredVal(Modif<Pred>),
+    PredVal(Modif),
 }
 
 // pub fn wrap_label(f: impl Fn(<Predicate as Pred>::ty) -> Vec<(usize, SubstitutionList)>) {
@@ -38,30 +38,7 @@ type CTL = GenericCtl<
     Vec<String>,
 >;
 
-pub fn make_ctl_simple(mut snodes: Vec<Snode>) -> CTL {
-    if snodes.len() == 0 {
-        return CTL::True;
-    }
-    // fn aux(snode: &Snode) -> Box<CTL> {
-    //     if snode.children.is_empty() {
-    //         return Box::new(CTL::Pred(Predicate::Match(
-    //             snode.clone(),
-    //             Modif::Unmodif(snode.clone()),
-    //         )));
-    //     } else if snode.children.len() == 1 {
-    //         return aux(&snode.children[0]);
-    //     } else {
-    //         let mut rev_iter = snode.children.iter().rev();
-    //         let mut ctl = aux(rev_iter.next().unwrap());
-
-    //         for (i, snode) in rev_iter.enumerate() {
-    //             let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
-    //             ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
-    //         }
-    //         ctl
-    //     }
-    // }
-
+pub fn make_ctl_simple(mut snode: &Snode) -> CTL {
     fn get_kind_pred(ctl: Box<CTL>, kind: SyntaxKind) -> Box<CTL> {
         let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind)));
         let fctl = CTL::And(
@@ -74,19 +51,26 @@ pub fn make_ctl_simple(mut snodes: Vec<Snode>) -> CTL {
 
     fn aux(snode: &Snode, attach_end: Option<Box<CTL>>) -> Box<CTL> {
         if snode.children.is_empty() {
-            let c =
-                Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Unmodif(snode.clone()))));
+            let c = if snode.wrapper.is_modded {
+                //is minused or has pluses attached to it
+                Box::new(CTL::Exists(
+                    true,
+                    MetavarName::create_v(),
+                    Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif))),
+                ))
+            } else {
+                Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Unmodif)))
+            };
+
             if let Some(attach_end) = attach_end {
                 Box::new(CTL::And(
                     Strict::Strict,
                     c,
                     Box::new(CTL::AX(Direction::Forward, Strict::Strict, attach_end)),
                 ))
-            }
-            else {
+            } else {
                 c
             }
-            
         } else if snode.children.len() == 1 {
             let ctl = aux(&snode.children[0], attach_end);
             get_kind_pred(ctl, snode.kind())
@@ -105,13 +89,24 @@ pub fn make_ctl_simple(mut snodes: Vec<Snode>) -> CTL {
         }
     }
 
-    let f = snodes.remove(snodes.len() - 1);
-    let ctl = aux(&f, None);
-    *snodes.iter().rev().fold(ctl, |ctl, snode| {
-        todo!();
-        let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
-        Box::new(CTL::And(Strict::Strict, aux(snode, None), Box::new(p)))
-    })
+    // let f = snodes.remove(snodes.len() - 1);
+    // let ctl = aux(&f, None);
+    // *snodes.iter().rev().fold(ctl, |ctl, snode| {
+    //     todo!();
+    //     let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
+    //     Box::new(CTL::And(Strict::Strict, aux(snode, None), Box::new(p)))
+    // })
+
+    let ctl = aux(snode, None);
+    match *ctl {
+        CTL::And(_, _, b) => match *b {
+            CTL::AX(_, _, b) => *b,
+            _ => panic!("Should not be anything but an AX"),
+        },
+        _ => {
+            panic!("Should not be as of now, other than AND")
+        }
+    }
 }
 
 pub fn make_ctl(

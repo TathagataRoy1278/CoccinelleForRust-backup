@@ -85,7 +85,7 @@ macro_rules! C {
     [$id:ident, $e1:expr, $e2:expr, $e3: expr, $e4: expr] => {
         GenericCtl::$id($e1, $e2, Box::new($e3), Box::new($e4))
     };
-    
+
 }
 
 #[macro_export]
@@ -102,6 +102,13 @@ macro_rules! satvs {
             $phi,
             $env,
         )
+    };
+}
+
+#[macro_export]
+macro_rules! deprecated {
+    () => {
+        panic!("This code is no longer used.");
     };
 }
 
@@ -377,6 +384,10 @@ pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
         //attach to a token or a metavar
         //a metavar does not always mean a token like an expr may be
         //a path_expr
+
+        if !plus.is_empty() {
+            node.wrapper.is_modded = true;
+        }
         if plus.len() != 0 {
             debugcocci!(
                 "Plus Statements:- {:#?} attached to front of {}:{:?}",
@@ -402,6 +413,11 @@ pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
 pub fn attach_pluses_back(node: &mut Snode, plus: Vec<Snode>) {
     let len = node.children.len();
     if len == 0 || !node.wrapper.metavar.isnotmeta() {
+        
+        if !plus.is_empty() {
+            node.wrapper.is_modded = true;
+        }
+
         if plus.len() != 0 {
             debugcocci!(
                 "Plus Statements:- {:#?} attached to back of {}:{:?}",
@@ -472,11 +488,7 @@ pub fn is_punc(s: &str) -> bool {
         return false;
     }
     match s.chars().into_iter().next().unwrap() {
-        ',' | '.' | '!' | ':' | ';' | '?' | '=' | '(' | ')' | '[' | ']' => {
-            true
-        }
-        _ => {
-            false
-        }
+        ',' | '.' | '!' | ':' | ';' | '?' | '=' | '(' | ')' | '[' | ']' => true,
+        _ => false,
     }
 }

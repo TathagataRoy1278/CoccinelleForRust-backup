@@ -1797,7 +1797,7 @@ where
                     anno(Self::triples_witness(self, &v, unchecked, !keep, &res), vec![child])
                 }
                 GenericCtl::And(strict, phi1, phi2) => {
-                    let pm = !false; //PARTIAL_MATCH
+                    let pm = self.ctl_flags.PARTIAL_MATCH; //PARTIAL_MATCH
                     match (pm, satv!(unchecked, required, required_states, phi1, env)) {
                         (false, (child1, res)) if res.is_empty() => anno(vec![], vec![child1]),
                         (_, (child1, res1)) => {

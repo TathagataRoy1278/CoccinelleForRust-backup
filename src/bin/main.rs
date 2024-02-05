@@ -459,7 +459,7 @@ fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
     // let bindings =
 }
 
-fn transform(trees: Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
     for tree in trees {
         for wit in tree {
             match wit {
@@ -472,7 +472,7 @@ fn transform(trees: Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                 ),
                                 SubOrMod::Mod(_, mods) => {
                                     let mut env = Environment::new();
-                                    env.modifiers = mods;
+                                    env.modifiers = mods.clone();
                                     transformation::transform(rnode, &env);
                                 }
                             },
@@ -583,16 +583,21 @@ fn run_test(args: &CoccinelleForRust) {
 
 fn run_test_tmp(args: &CoccinelleForRust) {
     let contents = fs::read_to_string(&args.coccifile).unwrap();
-    let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
-    let st = snodes.clone();
+    let rules = processcocci(&contents).0;
+    let snode = if rules.len() > 1 { todo!() } else { getstmtlist(&rules[0].patch.minus) };
+    // let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
+    // let st = snodes.clone();
 
     let rfile = fs::read_to_string(&args.targetpath).unwrap();
     let rnodes = processrs(&rfile).unwrap();
-    let rnodes = rnodes.into_iter().map(|x| vec![x]).collect_vec();
+
+    //Notice how we use vec![x] to wrap each function
+    let mut rnodes = rnodes.into_iter().map(|x| vec![x]).collect_vec();
+
     // let rnodes = rnodes.into_iter()
     let flows = asts_to_flow(&rnodes);
 
-    let a = make_ctl_simple(st);
+    let a = make_ctl_simple(snode);
 
     if args.show_cfg {
         show_cfg(&flows[0]);
@@ -617,12 +622,21 @@ fn run_test_tmp(args: &CoccinelleForRust) {
     //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
     // });
 
-    for flow in flows {
-        let res = processctl(&a, &flow, &vec![]);
+    let mut trees = vec![];
+    for (i, flow) in flows.iter().enumerate() {
+        let res = processctl(&a, flow, &vec![]);
         eprintln!("{:?}", res);
+        trees.push(res.into_iter().map(|(_, _, tree)| tree).collect_vec());
+    }
+
+    for (i, tree) in trees.iter().enumerate() {
+        transform(tree, &mut rnodes[i][0]);
+    }
+
+    for rnode in rnodes {
+        eprintln!("{}", rnode[0].getstring());
     }
     // make_graphviz(&flow, "/home/troy/tmp/tmp.gviz");
-    
 }
 
 fn show_cfg(flow: &Rflow) {
@@ -643,12 +657,13 @@ fn show_cfg(flow: &Rflow) {
 
 fn main() {
     let args = CoccinelleForRust::parse();
+    init_logger(&args);
+
     if args.dots.is_some() {
         run_test_tmp(&args);
         exit(1);
     }
 
-    init_logger(&args);
     makechecks(&args);
 
     let targetpath = Path::new(&args.targetpath);

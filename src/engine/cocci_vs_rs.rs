@@ -7,6 +7,7 @@ use itertools::Itertools;
 use ra_parser::SyntaxKind;
 use regex::Regex;
 
+use crate::deprecated;
 use crate::{
     commons::util::{get_pluses_back, get_pluses_front, getnrfrompt, getnrfrompt_r, getstmtlist},
     debugcocci, fail,
@@ -109,7 +110,8 @@ impl<'a> Environment {
 enum MetavarMatch<'a, 'b> {
     Fail,
     Maybe(&'b Snode, &'a Rnode),
-    Match,
+    MetavarMatch,
+    TokenMatch,
     Exists,
     WildMatch,
 }
@@ -117,7 +119,7 @@ enum MetavarMatch<'a, 'b> {
 /// This checks for any pluses attached to the SEMANTIC PATCH CODE
 /// If so it marks the corresponding position in the RUST CODE
 /// and stores it along with the plus code in env
-fn addplustoenv(a: &Snode, b: &Rnode, env: &mut Environment) {
+pub fn addplustoenv(a: &Snode, b: &Rnode, env: &mut Environment) {
     match &a.wrapper.mcodekind {
         Mcodekind::Context(avec, bvec) => {
             if avec.len() != 0 {
@@ -291,7 +293,10 @@ impl<'a, 'b> Looper {
                             .unwrap_or_else(|| panic!("Something wrong with wildcard."));
                     }
                 }
-                MetavarMatch::Match => {
+                MetavarMatch::TokenMatch => {
+                    todo!()
+                }
+                MetavarMatch::MetavarMatch => {
                     let minfo = a.wrapper.metavar.getminfo();
                     debugcocci!(
                         "Binding {} to {}.{}",
@@ -414,7 +419,7 @@ impl<'a, 'b> Looper {
 
         match &node1.wrapper.metavar {
             crate::parsing_cocci::ast0::MetaVar::NoMeta => {
-                if node2.children.len() == 0
+                if node2.children.is_empty()
                 //end of node
                 {
                     //println!("{:?}========{}", node2.kind(), node2.astnode.to_string());
@@ -423,7 +428,7 @@ impl<'a, 'b> Looper {
                         //basically checks for tokens
                         return MetavarMatch::Fail;
                     } else {
-                        return MetavarMatch::Exists;
+                        return MetavarMatch::TokenMatch;
                     }
                 }
                 return MetavarMatch::Maybe(node1, node2); //not sure
@@ -452,38 +457,38 @@ impl<'a, 'b> Looper {
                     match metavar {
                         MetaVar::Exp(_info) => {
                             if node2.isexpr() {
-                                return MetavarMatch::Match;
+                                return MetavarMatch::MetavarMatch;
                             }
                             return MetavarMatch::Maybe(node1, node2);
                         }
                         MetaVar::Id(_info) => {
                             if node2.isid() {
-                                return MetavarMatch::Match;
+                                return MetavarMatch::MetavarMatch;
                             }
                             return MetavarMatch::Maybe(node1, node2);
                         }
                         MetaVar::Lifetime(_info) => {
                             if node2.islifetime() {
-                                return MetavarMatch::Match;
+                                return MetavarMatch::MetavarMatch;
                             }
                             return MetavarMatch::Maybe(node1, node2);
                         }
                         MetaVar::Type(_info) => {
                             if node2.istype() {
-                                return MetavarMatch::Match;
+                                return MetavarMatch::MetavarMatch;
                             }
                             return MetavarMatch::Maybe(node1, node2);
                         }
                         MetaVar::Parameter(_info) => {
                             if node2.isparam() {
-                                return MetavarMatch::Match;
+                                return MetavarMatch::MetavarMatch;
                             }
                             return MetavarMatch::Maybe(node1, node2);
                         }
                         MetaVar::Adt(tyname1, _info) => {
                             if let Some(tyname2) = &node2.wrapper.get_type() {
                                 if types_equal(tyname1, tyname2) {
-                                    return MetavarMatch::Match;
+                                    return MetavarMatch::MetavarMatch;
                                 }
                             }
 
@@ -591,17 +596,67 @@ pub fn visitrnode(
 }
 
 pub fn match_nodes(
-    nodea: Vec<&Snode>, //This is a stmtlist
+    nodea: &Snode, //This is a stmtlist
     nodeb: &Rnode,
     inherited_bindings: &Vec<MetavarBinding>,
 ) -> Environment {
     let looper = Looper::new(tokenf);
     let mut ienv = Environment::new();
     ienv.addbindings(&inherited_bindings.iter().collect_vec());
-    let f = &mut |x: &Vec<&Snode>, y: &Vec<&Rnode>| {
-        looper.matchnodes(x, y, ienv.clone(), true)
-    };
     // let envs = visitrnode(&nodea, nodeb, f);
-    let env = looper.matchnodes(&nodea, &vec![nodeb], ienv, true);
-    env
+    let metavarmatch = looper.workon(&nodea, &nodeb, &ienv.bindings);
+
+    match metavarmatch {
+        MetavarMatch::Fail => fail!(),
+        MetavarMatch::Maybe(_, _) => deprecated!(),
+        MetavarMatch::MetavarMatch => {
+            let minfo = nodea.wrapper.metavar.getminfo();
+            debugcocci!(
+                "Binding {} to {}.{}",
+                nodeb.getstring(),
+                minfo.0.rulename.to_string(),
+                minfo.0.varname.to_string()
+            );
+
+            let binding = MetavarBinding::new(
+                minfo.0.rulename.to_string(),
+                minfo.0.varname.to_string(),
+                nodeb.clone(),
+            );
+
+            match nodea.wrapper.mcodekind {
+                Mcodekind::Minus(_) | Mcodekind::Star => {
+                    ienv.modifiers.minuses.push(nodeb.getpos());
+                }
+                Mcodekind::Plus => {}
+                Mcodekind::Context(_, _) => {}
+            }
+
+            addplustoenv(nodea, nodeb, &mut ienv);
+            ienv.addbinding(binding);
+        },
+        MetavarMatch::Exists => {
+            addplustoenv(nodea, nodeb, &mut ienv);
+            match nodea.wrapper.mcodekind {
+                Mcodekind::Minus(_) | Mcodekind::Star => {
+                    ienv.modifiers.minuses.push(nodeb.getpos());
+                }
+                Mcodekind::Plus => {}
+                Mcodekind::Context(_, _) => {}
+            }
+        },
+        MetavarMatch::TokenMatch => {
+            addplustoenv(nodea, nodeb, &mut ienv);
+            match nodea.wrapper.mcodekind {
+                Mcodekind::Minus(_) | Mcodekind::Star => {
+                    ienv.modifiers.minuses.push(nodeb.getpos());
+                }
+                Mcodekind::Plus => {}
+                Mcodekind::Context(_, _) => {}
+            }
+        }
+        MetavarMatch::WildMatch => deprecated!(),
+    }
+
+    ienv
 }

@@ -115,7 +115,7 @@ impl Patch {
         setmetavars_aux(&mut self.minus, metavars);
     }
 
-    fn setmods(&mut self) {
+    fn setminus(&mut self) {
         let mut tagmods =
             |node: &mut Snode, (lino, modifier): (usize, Mcodekind)| -> (usize, Mcodekind) {
                 let (start, end) = node.wrapper.getlinenos();
@@ -457,7 +457,7 @@ fn getpatch(
     let minusbuf = format!("{}{}", "\n".repeat(llino), minusbuf);
     let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str()) };
     p.setmetavars(metavars);
-    p.setmods();
+    p.setminus();
     removestmtbraces(&mut p.minus);
     removestmtbraces(&mut p.plus);
     p.striplet(hastype);
