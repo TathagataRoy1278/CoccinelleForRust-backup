@@ -38,9 +38,9 @@ type CTL = GenericCtl<
     Vec<String>,
 >;
 
-pub fn make_ctl_simple(mut snode: &Snode) -> CTL {
-    fn get_kind_pred(ctl: Box<CTL>, kind: SyntaxKind) -> Box<CTL> {
-        let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind)));
+pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
+    fn get_kind_pred(ctl: Box<CTL>, kind: SyntaxKind, prev_is_mvar: bool) -> Box<CTL> {
+        let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind, prev_is_mvar)));
         let fctl = CTL::And(
             Strict::Strict,
             kind_pred,
@@ -49,17 +49,17 @@ pub fn make_ctl_simple(mut snode: &Snode) -> CTL {
         Box::new(fctl)
     }
 
-    fn aux(snode: &Snode, attach_end: Option<Box<CTL>>) -> Box<CTL> {
+    fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
         if snode.children.is_empty() {
             let c = if snode.wrapper.is_modded {
                 //is minused or has pluses attached to it
                 Box::new(CTL::Exists(
                     true,
                     MetavarName::create_v(),
-                    Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif))),
+                    Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar))),
                 ))
             } else {
-                Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Unmodif)))
+                Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Unmodif, prev_is_mvar)))
             };
 
             if let Some(attach_end) = attach_end {
@@ -72,20 +72,24 @@ pub fn make_ctl_simple(mut snode: &Snode) -> CTL {
                 c
             }
         } else if snode.children.len() == 1 {
-            let ctl = aux(&snode.children[0], attach_end);
-            get_kind_pred(ctl, snode.kind())
+            let ctl = aux(&snode.children[0], attach_end, false);
+            get_kind_pred(ctl, snode.kind(), prev_is_mvar)
         } else {
             let skind = snode.kind();
-            let mut rev_iter = snode.children.iter().rev();
-            let snode = rev_iter.next().unwrap();
-            let mut ctl = aux(snode, attach_end);
+            let mut rev_iter = snode.children.iter().rev().peekable();
+            let mut snode = rev_iter.next().unwrap();
+            let mut spb = rev_iter.peek().unwrap().wrapper.metavar.ismeta();
+            let mut ctl = aux(snode, attach_end, spb);
+            // let mut spb: bool;
 
-            for snode in rev_iter {
+            while rev_iter.len() != 0 {
                 // let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
                 // ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
-                ctl = aux(snode, Some(ctl));
+                snode = rev_iter.next().unwrap();
+                spb = rev_iter.next().map_or(false, |x| x.wrapper.metavar.ismeta());
+                ctl = aux(snode, Some(ctl), spb);
             }
-            get_kind_pred(ctl, skind)
+            get_kind_pred(ctl, skind, prev_is_mvar)
         }
     }
 
@@ -97,7 +101,7 @@ pub fn make_ctl_simple(mut snode: &Snode) -> CTL {
     //     Box::new(CTL::And(Strict::Strict, aux(snode, None), Box::new(p)))
     // })
 
-    let ctl = aux(snode, None);
+    let ctl = aux(snode, None, false);
     match *ctl {
         CTL::And(_, _, b) => match *b {
             CTL::AX(_, _, b) => *b,

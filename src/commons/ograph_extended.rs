@@ -33,7 +33,9 @@ impl EdgeIndex {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum EdgeType {
     Default,
-    NextSibling,
+    NextSibling,//gives next sibling for successor, but gives default node for predecessors
+    PrevSibling,//gives prev sibling for predecessor, but gives default node for successor
+    Sibling
 }
 
 // impl Into<usize> for EdgeIndex {

@@ -117,17 +117,20 @@ impl<'a> Graph for Rflow<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Predicate {
-    Match(Snode, Modif),
-    Kind(SyntaxKind),
+    Match(Snode, Modif, bool),
+    //bool for if is after a metavariable
+    //in which case successor is the next
+    //sibling
+    Kind(SyntaxKind, bool),
 }
 
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Predicate::Match(node, modif) => {
+            Predicate::Match(node, modif, _) => {
                 write!(f, "{} {}", node.getstring(), modif)
             }
-            Predicate::Kind(kind) => {
+            Predicate::Kind(kind, _) => {
                 write!(f, "{:?} ", kind)
             }
         }
@@ -165,7 +168,7 @@ fn labels_for_ctl<'a>() -> fn(
         p: &<Predicate as Pred>::ty,
     ) -> TripleList<Rflow<'a>, Substitution, Predicate> {
         match &p {
-            Predicate::Match(snode, modif) => {
+            Predicate::Match(snode, modif, pim) => {
                 flow.nodes().iter().fold(vec![], |mut prev, node| {
                     if flow.node(*node).data().is_dummy() {
                         prev
@@ -186,11 +189,15 @@ fn labels_for_ctl<'a>() -> fn(
                                 env.bindings.into_iter().map(|s| create_subs(s)).collect_vec(),
                             );
 
-                            let sub = if t.is_empty() {
-                                ((node.clone(), EdgeType::Default), t, vec![])
-                            } else {
-                                ((node.clone(), EdgeType::NextSibling), t, vec![])
+                            let et = match (!t.is_empty(), pim) {
+                                // !t.isempty() is true if it is a metavar
+                                (true, false) => EdgeType::NextSibling,
+                                (false, false) => EdgeType::Default,
+                                (true, true) => EdgeType::Sibling,
+                                (false, true) => EdgeType::PrevSibling,
                             };
+
+                            let sub = ((node.clone(), et), t, vec![]);
 
                             prev.push(sub);
                         }
@@ -198,14 +205,18 @@ fn labels_for_ctl<'a>() -> fn(
                     }
                 })
             }
-            Predicate::Kind(kind) => {
+            Predicate::Kind(kind, pim) => {
                 // eprintln!("krodher agun {:?}", kind);
                 flow.nodes().iter().fold(vec![], |mut prev, node| {
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
                         if flow.node(*node).data().rnode().kind().eq(kind) {
-                            prev.push(((node.clone(), EdgeType::Default), vec![], vec![]))
+                            if *pim {
+                                prev.push(((node.clone(), EdgeType::PrevSibling), vec![], vec![]))
+                            } else {
+                                prev.push(((node.clone(), EdgeType::Default), vec![], vec![]))
+                            }
                         }
                         prev
                     }
