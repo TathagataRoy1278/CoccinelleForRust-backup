@@ -597,7 +597,7 @@ fn run_test_tmp(args: &CoccinelleForRust) {
     // let rnodes = rnodes.into_iter()
     let flows = asts_to_flow(&rnodes);
 
-    let a = make_ctl_simple(snode);
+    let a = make_ctl_simple(snode, false);
 
     if args.show_cfg {
         show_cfg(&flows[0]);
@@ -605,6 +605,7 @@ fn run_test_tmp(args: &CoccinelleForRust) {
 
     if args.show_ctl {
         eprintln!("CTL - {}", a);
+        panic!();
     }
 
     // let flow = &flows[0];
@@ -661,6 +662,7 @@ fn main() {
 
     if args.dots.is_some() {
         run_test_tmp(&args);
+        eprintln!("Hell");
         exit(1);
     }
 

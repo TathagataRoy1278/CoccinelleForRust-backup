@@ -608,8 +608,13 @@ pub fn match_nodes(
 
     match metavarmatch {
         MetavarMatch::Fail => fail!(),
-        MetavarMatch::Maybe(_, _) => deprecated!(),
+        MetavarMatch::Maybe(a, b) => {
+            if a.kind() != b.kind() {
+                fail!()
+            }
+        },
         MetavarMatch::MetavarMatch => {
+            eprintln!("herer");
             let minfo = nodea.wrapper.metavar.getminfo();
             debugcocci!(
                 "Binding {} to {}.{}",

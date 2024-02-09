@@ -62,39 +62,26 @@ impl<'a> Graph for Rflow<'a> {
     //gives us the type of edge that was traversed to get that node.
     //While both have the same data type (NodeIndex, EdgeType) the use
     //is different
-    type Node = (NodeIndex, EdgeType);
+    type Node = NodeIndex;
 
-    fn predecessors(cfg: &Self::Cfg, (node, tet): &Self::Node) -> Vec<Self::Node> {
+    fn predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
         let preds = cfg.predecessors_and_edges(*node);
         preds
             .into_iter()
-            .filter_map(|(x, et)| {
-                if et == *tet {
-                    Some((x, EdgeType::Default)) //The edgetype is changed because we want to revert back to
-                                                 //getting default children after metavars are dealt with
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(x, et)| if et == EdgeType::Default { Some(x) } else { None })
             .collect_vec()
     }
 
-    fn successors(cfg: &Self::Cfg, (node, tet): &Self::Node) -> Vec<Self::Node> {
+    fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
         let succs = cfg.successors_and_edges(*node);
         succs
             .into_iter()
-            .filter_map(|(x, et)| {
-                if et == *tet {
-                    Some((x, EdgeType::Default)) //Look at reason above
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(x, et)| if et == EdgeType::Default { Some(x) } else { None })
             .collect_vec()
     }
 
     fn nodes(cfg: &Self::Cfg) -> Vec<Self::Node> {
-        cfg.nodes().into_iter().map(|x| (x, EdgeType::Default)).collect_vec()
+        cfg.nodes()
     }
 
     fn direct_predecessors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
@@ -127,11 +114,19 @@ pub enum Predicate {
 impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Predicate::Match(node, modif, _) => {
-                write!(f, "{} {}", node.getstring(), modif)
+            Predicate::Match(node, modif, pm) => {
+                if *pm {
+                    write!(f, "{}(M) {}", node.getstring(), modif)
+                } else {
+                    write!(f, "{} {}", node.getstring(), modif)
+                }
             }
-            Predicate::Kind(kind, _) => {
-                write!(f, "{:?} ", kind)
+            Predicate::Kind(kind, pm) => {
+                if *pm {
+                    write!(f, "{:?}(M) ", kind)
+                } else {
+                    write!(f, "{:?} ", kind)
+                }
             }
         }
     }
@@ -189,15 +184,15 @@ fn labels_for_ctl<'a>() -> fn(
                                 env.bindings.into_iter().map(|s| create_subs(s)).collect_vec(),
                             );
 
-                            let et = match (!t.is_empty(), pim) {
-                                // !t.isempty() is true if it is a metavar
-                                (true, false) => EdgeType::NextSibling,
-                                (false, false) => EdgeType::Default,
-                                (true, true) => EdgeType::Sibling,
-                                (false, true) => EdgeType::PrevSibling,
-                            };
+                            // let et = match (!t.is_empty(), pim) {
+                            //     // !t.isempty() is true if it is a metavar
+                            //     (true, false) => EdgeType::NextSibling,
+                            //     (false, false) => EdgeType::Default,
+                            //     (true, true) => EdgeType::Sibling,
+                            //     (false, true) => EdgeType::PrevSibling,
+                            // };
 
-                            let sub = ((node.clone(), et), t, vec![]);
+                            let sub = (node.clone(), t, vec![]);
 
                             prev.push(sub);
                         }
@@ -212,11 +207,7 @@ fn labels_for_ctl<'a>() -> fn(
                         prev
                     } else {
                         if flow.node(*node).data().rnode().kind().eq(kind) {
-                            if *pim {
-                                prev.push(((node.clone(), EdgeType::PrevSibling), vec![], vec![]))
-                            } else {
-                                prev.push(((node.clone(), EdgeType::Default), vec![], vec![]))
-                            }
+                            prev.push(((node.clone()), vec![], vec![]))
                         }
                         prev
                     }
@@ -356,7 +347,7 @@ pub fn model_for_ctl<'a>(
     fn(&<Predicate as Pred>::ty) -> bool,
     Vec<<ograph_extended::Graph<crate::parsing_rs::control_flow::Node<'a>> as ctl_engine::Graph>::Node>,
 ){
-    let nodes = flow.nodes().into_iter().map(|x| (x, EdgeType::Default)).collect_vec();
+    let nodes = flow.nodes();
     fn f(_: &<Predicate as Pred>::ty) -> bool {
         true
     }

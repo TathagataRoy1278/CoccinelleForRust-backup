@@ -86,7 +86,7 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
                 // let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
                 // ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
                 snode = rev_iter.next().unwrap();
-                spb = rev_iter.next().map_or(false, |x| x.wrapper.metavar.ismeta());
+                spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
                 ctl = aux(snode, Some(ctl), spb);
             }
             get_kind_pred(ctl, skind, prev_is_mvar)
