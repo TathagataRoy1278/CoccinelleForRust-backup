@@ -38,6 +38,15 @@ pub enum EdgeType {
     Sibling
 }
 
+impl EdgeType {
+    pub fn is_default(&self) -> bool {
+        match self {
+            EdgeType::Default => true,
+            _ => false
+        }
+    }
+}
+
 // impl Into<usize> for EdgeIndex {
 //     fn into(self) -> usize {
 //         self.0

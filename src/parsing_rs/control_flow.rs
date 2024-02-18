@@ -129,7 +129,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
             //creates edge between the current node and the previous node
 
             if let Some(prev_sib) = prev_sib {
-                graph.add_edge(prev_sib, ind, EdgeType::NextSibling);
+                graph.add_edge(prev_sib, ind, EdgeType::Sibling);
             }
 
             let inds = make_graph(ind, graph, &rnode.children, label);

@@ -434,7 +434,7 @@ impl<'a, 'b> Looper {
                 return MetavarMatch::Maybe(node1, node2); //not sure
             }
             metavar => {
-                //println!("Found Expr {}, {:?}", node1.wrapper.metavar.getname(), node2.kind());
+                // println!("Found Expr {}, {:?}", node1.wrapper.metavar.getname(), node2.kind());
                 if let Some(binding) = bindings
                     .iter()
                     .find(|binding| binding.metavarinfo.varname == node1.wrapper.metavar.getname())

@@ -835,7 +835,7 @@ where
         if pNEW_INFO_OPT {
             let mut something_dropped = false;
             if trips1 == trips2 {
-                something_dropped = true;
+                // something_dropped = true;
                 trips1.clone()
             } else {
                 let subsumes = |(s1, th1, wit1): &Triple<G, S, P>,

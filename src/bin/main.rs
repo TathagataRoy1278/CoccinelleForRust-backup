@@ -605,7 +605,6 @@ fn run_test_tmp(args: &CoccinelleForRust) {
 
     if args.show_ctl {
         eprintln!("CTL - {}", a);
-        panic!();
     }
 
     // let flow = &flows[0];
@@ -629,6 +628,7 @@ fn run_test_tmp(args: &CoccinelleForRust) {
         eprintln!("{:?}", res);
         trees.push(res.into_iter().map(|(_, _, tree)| tree).collect_vec());
     }
+    panic!();
 
     for (i, tree) in trees.iter().enumerate() {
         transform(tree, &mut rnodes[i][0]);
