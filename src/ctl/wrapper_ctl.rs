@@ -50,14 +50,17 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
     }
 
     fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
-        if snode.children.is_empty() {
-            eprintln!("snode - {}", snode.getstring());
+        if snode.children.is_empty() || snode.wrapper.metavar.ismeta() {
             let c = if snode.wrapper.is_modded {
                 //is minused or has pluses attached to it
                 Box::new(CTL::Exists(
                     true,
                     MetavarName::create_v(),
-                    Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar))),
+                    Box::new(CTL::Pred(Predicate::Match(
+                        snode.clone(),
+                        Modif::Modif,
+                        prev_is_mvar,
+                    ))),
                 ))
             } else {
                 Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Unmodif, prev_is_mvar)))

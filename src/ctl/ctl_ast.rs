@@ -91,32 +91,29 @@ impl<Pred: Display, Mvar, Anno> GenericCtl<Pred, Mvar, Anno> {
     }
 }
 
-impl<Pred: Display, Mvar, Anno> Display for GenericCtl<Pred, Mvar, Anno> {
+impl<Pred: Display, Mvar: Display, Anno> Display for GenericCtl<Pred, Mvar, Anno> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn aux<Pred: Display, Mvar, Anno>(
+        fn aux<Pred: Display, Mvar: Display, Anno>(
             f: &mut std::fmt::Formatter<'_>,
             ctl: &GenericCtl<Pred, Mvar, Anno>,
         ) -> std::fmt::Result {
             let verbose = true;
             return match ctl {
                 GenericCtl::And(_, a, c) => match c.borrow() {
-                    GenericCtl::AX(_, _, b) if !verbose => {
-                        a.fmt(f).and(b.fmt(f))
-                        
-                    },
+                    GenericCtl::AX(_, _, b) if !verbose => a.fmt(f).and(b.fmt(f)),
                     ctl => a.fmt(f).and(write!(f, " & (")).and(ctl.fmt(f)).and(write!(f, ")")),
                 },
                 GenericCtl::False => write!(f, "{}", "False"),
                 GenericCtl::True => write!(f, "{}", "True"),
                 GenericCtl::Pred(p) => write!(f, "{}", *p),
                 GenericCtl::Not(ctl) => write!(f, "NOT ").and((*ctl).fmt(f)),
-                GenericCtl::Exists(_, _, ctl) => write!(f, "Ex ").and(ctl.fmt(f)),
+                GenericCtl::Exists(_, mvar, ctl) => write!(f, "Ex ").and(write!(f, "{}", &format!("{} ", mvar))).and(ctl.fmt(f)),
                 GenericCtl::AndAny(_, _, _, _) => todo!(),
                 GenericCtl::HackForStmt(_, _, _, _) => todo!(),
                 GenericCtl::Or(c1, c2) => c1.fmt(f).and(write!(f, " OR ")).and(c2.fmt(f)),
                 GenericCtl::Implies(_, _) => todo!(),
                 GenericCtl::AF(_, _, ctl) => write!(f, "AF ").and(ctl.fmt(f)),
-                GenericCtl::AX(_, _, ctl) => write!(f, "AX ").and(ctl.fmt(f)),
+                GenericCtl::AX(_, _, ctl) => write!(f, "AX (").and(ctl.fmt(f)).and(write!(f, ")")),
                 GenericCtl::AG(_, _, ctl) => write!(f, "AG ").and(ctl.fmt(f)),
                 GenericCtl::AW(_, _, _, _) => todo!(),
                 GenericCtl::AU(_, _, c1, c2) => write!(f, "A[")

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use std::{path::Display, rc::Rc};
 use std::vec;
+use std::{path::Display, rc::Rc};
 
 use itertools::Itertools;
 use ra_parser::SyntaxKind;
@@ -26,24 +26,20 @@ const EXCEPTIONAL_MATCHES: [(Tag, Tag); 0] = [];
 pub struct MetavarBinding {
     pub metavarinfo: MetavarName,
     pub rnode: Rc<Rnode>,
-    neg: bool,
+    pub neg: bool,
 }
 
 impl<'a> MetavarBinding {
-    fn new(rname: String, varname: String, rnode: Rnode) -> MetavarBinding {
+    pub fn new(rname: String, varname: String, rnode: Rnode) -> MetavarBinding {
         return MetavarBinding {
             metavarinfo: MetavarName { rulename: rname, varname: varname },
             rnode: Rc::new(rnode),
-            neg: false
+            neg: false,
         };
     }
 
-    pub fn from_subs(mvar: MetavarName, rnode: Rc<Rnode>, neg: bool) -> MetavarBinding{
-        return MetavarBinding {
-            metavarinfo: mvar,
-            rnode: rnode,
-            neg
-        }
+    pub fn from_subs(mvar: MetavarName, rnode: Rc<Rnode>, neg: bool) -> MetavarBinding {
+        return MetavarBinding { metavarinfo: mvar, rnode: rnode, neg };
     }
 }
 
@@ -51,6 +47,13 @@ impl<'a> MetavarBinding {
 pub struct Modifiers {
     pub minuses: Vec<(usize, usize)>,           //start, end
     pub pluses: Vec<(usize, bool, Vec<Snode>)>, //pos, isbefore?, actual plusses
+}
+
+impl Modifiers {
+    pub fn add_modifs(&mut self, m: Modifiers) {
+        self.minuses.extend(m.minuses);
+        self.pluses.extend(m.pluses);
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -63,9 +66,9 @@ pub struct Environment {
 impl<'a> Environment {
     pub fn add(&mut self, env: Self) {
         for binding in env.bindings {
-            if !self.bindings.iter().any(|x| x.metavarinfo.varname == binding.metavarinfo.varname) {
-                self.bindings.push(binding);
-            }
+            // if !self.bindings.iter().any(|x| x.metavarinfo.varname == binding.metavarinfo.varname) {
+            self.bindings.push(binding);
+            // }
         }
         //self.bindings.extend(env.bindings);
         self.modifiers.minuses.extend(env.modifiers.minuses);
@@ -105,6 +108,8 @@ impl<'a> Environment {
             modifiers: Modifiers { minuses: vec![], pluses: vec![] },
         }
     }
+
+    // pub fn split_bindings(&self, env: Vec<Self>) -> Vec<Self> {}
 }
 
 enum MetavarMatch<'a, 'b> {
@@ -173,6 +178,9 @@ impl<'a, 'b> Looper {
         mut env: Environment,
         strict: bool,
     ) -> Environment {
+        unimplemented!();
+        //env.add() has been changed be careful if reincorporating this code
+
         let mut nodevec1 = nodevec1.iter();
         let mut nodevec2 = nodevec2.iter().peekable();
         let mut a: &Snode;
@@ -596,7 +604,7 @@ pub fn visitrnode(
 }
 
 pub fn match_nodes(
-    nodea: &Snode, //This is a stmtlist
+    nodea: &Snode,
     nodeb: &Rnode,
     inherited_bindings: &Vec<MetavarBinding>,
 ) -> Environment {
@@ -612,9 +620,8 @@ pub fn match_nodes(
             if a.kind() != b.kind() {
                 fail!()
             }
-        },
+        }
         MetavarMatch::MetavarMatch => {
-            eprintln!("herer");
             let minfo = nodea.wrapper.metavar.getminfo();
             debugcocci!(
                 "Binding {} to {}.{}",
@@ -639,7 +646,7 @@ pub fn match_nodes(
 
             addplustoenv(nodea, nodeb, &mut ienv);
             ienv.addbinding(binding);
-        },
+        }
         MetavarMatch::Exists => {
             addplustoenv(nodea, nodeb, &mut ienv);
             match nodea.wrapper.mcodekind {
@@ -649,7 +656,7 @@ pub fn match_nodes(
                 Mcodekind::Plus => {}
                 Mcodekind::Context(_, _) => {}
             }
-        },
+        }
         MetavarMatch::TokenMatch => {
             addplustoenv(nodea, nodeb, &mut ienv);
             match nodea.wrapper.mcodekind {

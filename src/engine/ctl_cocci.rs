@@ -52,12 +52,27 @@ impl Subs for Substitution {
 
 type SubstitutionList = crate::ctl::ctl_engine::SubstitutionList<Substitution>;
 
-#[derive(PartialOrd, Ord, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Node(NodeIndex, EdgeType);
 
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && self.1 == other.1
+        self.0 == other.0
+    }
+}
+
+impl PartialOrd for Node {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.0.partial_cmp(&other.0) {
+            Some(core::cmp::Ordering::Equal) => Some(core::cmp::Ordering::Equal),
+            ord => return ord,
+        }
+    }
+}
+
+impl Ord for Node {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
     }
 }
 
@@ -85,25 +100,20 @@ impl<'a> Graph for Rflow<'a> {
         let (node, tet) = (node.0, node.1);
         let preds = cfg.predecessors_and_edges(node);
 
+        use EdgeType as Et;
         preds
             .into_iter()
             .filter_map(
                 |(x, et)| {
-                    if et.is_default() && (tet.is_default() || tet == EdgeType::NextSibling) {
-                        Some(Node(x, EdgeType::Default))
-                    }
-                    else {
-                        assert_eq!(EdgeType::Sibling, et);
-                        // Because succs and preds always return
-                        // either default or sibling
-                        
-                        match tet {
-                            EdgeType::Default => None, 
-                            EdgeType::NextSibling => None, 
-                            EdgeType::PrevSibling => Some(Node(x, EdgeType::NextSibling)),
-                            EdgeType::Sibling => Some(Node(x, EdgeType::Sibling))
-                        }
-
+                    //preds is all the predecessors of the current node.
+                    //if pred is default and (the target edge is also default or is NextSibling)
+                    match (et, tet) {
+                        (Et::Default, Et::Default) | (Et::Default, Et::NextSibling) => Some(Node(x, Et::Default)),
+                        (Et::Default, Et::Sibling) | (Et::Default, Et::PrevSibling) => None,
+                        (Et::Sibling, Et::Default) | (Et::Sibling, Et::NextSibling) => None,
+                        (Et::Sibling, Et::Sibling) => Some(Node(x, Et::Sibling)),
+                        (Et::Sibling, Et::PrevSibling) => Some(Node(x, Et::NextSibling)),
+                        _ => panic!("ograph_extended should not use anything other than Default and Sibling")
                     }
                 }, //    if et == tet { Some(Node(x, EdgeType::Default)) } else { None }
             )
@@ -113,27 +123,22 @@ impl<'a> Graph for Rflow<'a> {
     fn successors(cfg: &Self::Cfg, node: &Self::Node) -> Vec<Self::Node> {
         let (node, tet) = (node.0, node.1);
 
+        use EdgeType as Et;
         let succs = cfg.successors_and_edges(node);
         succs
             .into_iter()
-            .filter_map(|(x, et)| {
-                if et.is_default() && (tet.is_default() || tet == EdgeType::PrevSibling) {
-                    Some(Node(x, EdgeType::Default))
+            .filter_map(|(x, et)| match (et, tet) {
+                (Et::Default, Et::Default) | (Et::Default, Et::PrevSibling) => {
+                    Some(Node(x, Et::Default))
                 }
-                else {
-                    assert_eq!(EdgeType::Sibling, et);
-                    // Because succs and preds always return
-                    // either default or sibling
-                    
-                    match tet {
-                        EdgeType::Default => None,
-                        EdgeType::NextSibling => Some(Node(x, EdgeType::PrevSibling)), 
-                        EdgeType::PrevSibling => None,
-                        EdgeType::Sibling => Some(Node(x, EdgeType::Sibling))
-                    }
-
-                } 
-            } )
+                (Et::Default, Et::Sibling) | (Et::Default, Et::NextSibling) => None,
+                (Et::Sibling, Et::Default) | (Et::Sibling, Et::PrevSibling) => None,
+                (Et::Sibling, Et::Sibling) => Some(Node(x, Et::Sibling)),
+                (Et::Sibling, Et::NextSibling) => Some(Node(x, Et::PrevSibling)),
+                _ => {
+                    panic!("ograph_extended should not use anything other than Default and Sibling")
+                }
+            })
             .collect_vec()
     }
 
@@ -226,10 +231,21 @@ fn labels_for_ctl<'a>() -> fn(
                         prev
                     } else {
                         let rnode = flow.node(*node).data().rnode();
-                        eprintln!("Flight risk = {} {:?} {}", snode.getstring(), snode.kind(), snode.wrapper.metavar.ismeta());
+                        // eprintln!(
+                        //     "Flight risk = {} {:?} {}",
+                        //     snode.getstring(),
+                        //     snode.kind(),
+                        //     snode.wrapper.metavar.ismeta()
+                        // );
                         let env = match_nodes(snode, rnode, &vec![]);
                         if !env.failed {
-                            eprintln!("matches {}", rnode.getstring());
+                            // eprintln!(
+                            //     "{}:{:?} matches {}:{:?}",
+                            //     snode.getstring(),
+                            //     snode.kind(),
+                            //     rnode.getstring(),
+                            //     rnode.kind()
+                            // );
                             // if snode
                             let mut t = vec![];
                             if modif.ismodif() {

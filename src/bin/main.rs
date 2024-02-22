@@ -460,7 +460,113 @@ fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
 }
 
 fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+    let mut modifiers = Modifiers { pluses: vec![], minuses: vec![] };
+    let mut env = Environment::new();
+
+    fn aux(wit: &CWitnessTree) -> Vec<Environment> {
+        let mut genvs = vec![];
+        let mut cenv = Environment::new();
+        match wit {
+            GenericWitnessTree::Wit(state, subs, _, witforest) => {
+                for sub in subs {
+                    match sub {
+                        GenericSubst::Subst(mvar, value) => match value {
+                            SubOrMod::Sub(node) => cenv.addbinding(MetavarBinding {
+                                metavarinfo: mvar.clone(),
+                                rnode: node.clone(),
+                                neg: false,
+                            }),
+
+                            SubOrMod::Mod(_, modif) => {
+                                cenv.modifiers.add_modifs(modif.clone());
+                            }
+                        },
+                        GenericSubst::NegSubst(_, _) => panic!(),
+                    }
+                }
+
+                for tree in witforest {
+                    let envs = aux(tree);
+                    //joining the envs
+                    envs.into_iter().for_each(|env| {
+                        let mut cenv = cenv.clone();
+                        cenv.add(env);
+                        genvs.push(cenv);
+                    })
+                }
+            }
+            GenericWitnessTree::NegWit(_) => panic!(),
+        }
+        return genvs;
+    }
+
     for tree in trees {
+        //tree is one of the changes
+        for wit in tree {
+            let envs = aux(wit);
+            envs.into_iter().for_each(|env| {
+                transformation::transform(rnode, &env);
+            });
+        }
+    }
+}
+
+// fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+//     let mut modifiers = Modifiers { pluses: vec![], minuses: vec![] };
+//     let mut env = Environment::new();
+
+//     fn aux(wits: &Vec<CWitnessTree>) -> Vec<Environment> {
+//         for wit in wits {
+//             let mut env = Environment::new();
+//             match wit {
+//                 GenericWitnessTree::Wit(node, subs, _, wit) => {
+//                     for sub in subs {
+//                         match sub {
+//                             GenericSubst::Subst(mvar, val) => match val {
+//                                 SubOrMod::Sub(sub) => {
+//                                     env.addbinding(MetavarBinding {
+//                                         metavarinfo: mvar.clone(),
+//                                         rnode: sub.clone(),
+//                                         neg: false,
+//                                     });
+//                                 }
+//                                 SubOrMod::Mod(_, modif) => {
+//                                     //once modifiers are reached, there are no
+//                                     //more substitutions after that
+//                                     //Should I put an assertion
+//                                     env.modifiers.add_modifs(modif.clone());
+//                                 }
+//                             },
+//                             GenericSubst::NegSubst(_, _) => {
+//                                 panic!(
+//                                     "Negative Subs here has no meaning because we are transforming"
+//                                 )
+//                             }
+//                         }
+//                         let nenv = aux(wit);
+//                         env.add(nenv);
+//                     }
+//                     return env;
+//                 }
+//                 GenericWitnessTree::NegWit(_) => {
+//                     panic!("It does not make sense for the last witness to have negative substitutions")
+//                 }
+//             }
+//         }
+//         todo!()
+//     }
+
+//     for tree in trees {
+//         //tree is one of the changes
+//         for wit in tree {
+//             let env = aux(wit);
+//         }
+//     }
+// }
+
+fn transform_old(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+    for tree in trees {
+        //tree is one of the changes
         for wit in tree {
             match wit {
                 GenericWitnessTree::Wit(_, wits, _, _) => {
@@ -623,14 +729,13 @@ fn run_test_tmp(args: &CoccinelleForRust) {
     // });
 
     let mut trees = vec![];
-    for (i, flow) in flows.iter().enumerate() {
+    for flow in flows.iter() {
         let res = processctl(&a, flow, &vec![]);
-        eprintln!("{:?}", res);
         trees.push(res.into_iter().map(|(_, _, tree)| tree).collect_vec());
     }
-    panic!();
 
     for (i, tree) in trees.iter().enumerate() {
+        eprintln!("TREE - {:#?}", tree);
         transform(tree, &mut rnodes[i][0]);
     }
 
