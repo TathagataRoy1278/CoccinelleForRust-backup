@@ -284,7 +284,7 @@ impl Rnode {
 
     pub fn isid(&self) -> bool {
         match self.kind() {
-            PATH | PATH_SEGMENT | NAME | NAME_REF => return true,
+            PATH | PATH_SEGMENT | NAME | NAME_REF | PATH_EXPR => return true,
             _ => {
                 return self.ispat();
             }

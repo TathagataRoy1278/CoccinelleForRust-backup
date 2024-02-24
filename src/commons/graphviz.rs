@@ -8,18 +8,18 @@ pub fn make_graphviz(graph: &Rflow, filename: &'static str) {
     fn aux(
         node: NodeIndex,
         graph: &Rflow,
-        table: &mut HashSet<(NodeIndex, NodeIndex)>,
+        table: &mut HashSet<(NodeIndex, NodeIndex, EdgeType)>,
     ) -> String {
         let mut res = String::new();
         let sae = graph.successors_and_edges(node);
 
         for (child, etype) in sae {
-            if table.get(&(node, child)).is_some() {
+            if table.get(&(node, child, etype)).is_some() {
                 //for dealing with loops
                 continue;
             }
 
-            table.insert((node, child));
+            table.insert((node, child, etype));
             res.push_str(&format!(
                 "{} [label = \"{}:{}\"]\n",
                 node.0,
@@ -43,4 +43,5 @@ pub fn make_graphviz(graph: &Rflow, filename: &'static str) {
     if let Err(_) = fs::write(filename, res) {
         eprintln!("Could not write file");
     }
+
 }

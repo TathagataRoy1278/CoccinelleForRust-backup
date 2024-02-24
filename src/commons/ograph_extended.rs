@@ -156,6 +156,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
 
     pub fn add_edge(&mut self, nodei: NodeIndex, succ: NodeIndex, edgetype: EdgeType) -> EdgeIndex {
         let edge = EdgeData { origin: nodei, target: succ, edgetype: edgetype, next_edge: None };
+        
         let mut nei = self.edges.len();
         self.edges.push(edge.clone());
         let nodei = nodei.to_usize();

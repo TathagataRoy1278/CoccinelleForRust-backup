@@ -107,12 +107,16 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
         graph: &'b mut Graph<Node<'a>>,
         rnodes: &'a Vec<Rnode>,
         label: usize,
-    ) -> Option<NodeIndex> {
-        let mut prev_sib = None;
+    ) -> (Option<NodeIndex>, Vec<NodeIndex>) {
+        let mut prev_sib: Option<NodeIndex> = None;
+        //First one is the index of the last node if children exist
+        //Second one is the list of all the nodes with no next node
+        //at their own level
+        let mut pinds = vec![];
 
         let label = label << 1;
         if rnodes.is_empty() {
-            return None;
+            return (None, pinds);
         }
 
         let mut rnodes = rnodes.iter().peekable();
@@ -131,8 +135,17 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
             if let Some(prev_sib) = prev_sib {
                 graph.add_edge(prev_sib, ind, EdgeType::Sibling);
             }
+            pinds.into_iter().for_each(|pind| {
+                graph.add_edge(pind, ind, EdgeType::Sibling);
+            });
 
-            let inds = make_graph(ind, graph, &rnode.children, label);
+            let (inds, pindst) = make_graph(ind, graph, &rnode.children, label);
+            pinds = pindst;
+
+            if rnodes.peek().is_none() {
+                pinds.push(ind);
+            }
+
             match inds {
                 Some(e) => {
                     prev = e;
@@ -144,13 +157,14 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
             prev_sib = Some(ind);
         }
 
-        return Some(prev);
+        return (Some(prev), pinds);
     }
 
     let mut graph: Graph<Node<'a>> = Graph::new();
     let f = graph.add_node(Node::StartNode);
 
-    let e = make_graph(f, &mut graph, rnodes, 0).unwrap();
+    let (e, _) = make_graph(f, &mut graph, rnodes, 0);
+    let e = e.unwrap();
 
     //Make end dummy node loop
     let ind = graph.add_node(Node::EndNode);

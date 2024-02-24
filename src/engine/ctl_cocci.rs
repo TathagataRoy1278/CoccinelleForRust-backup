@@ -194,6 +194,15 @@ impl Display for Predicate {
     }
 }
 
+impl Predicate {
+    pub fn set_pm_true(&mut self) {
+        match self {
+            Predicate::Match(_, _, pm) => *pm = true,
+            Predicate::Kind(_, pm) => *pm = true,
+        }
+    }
+}
+
 pub enum MVar<'a> {
     NormalMatch(&'a Rnode),
 }
@@ -239,13 +248,14 @@ fn labels_for_ctl<'a>() -> fn(
                         // );
                         let env = match_nodes(snode, rnode, &vec![]);
                         if !env.failed {
-                            // eprintln!(
-                            //     "{}:{:?} matches {}:{:?}",
-                            //     snode.getstring(),
-                            //     snode.kind(),
-                            //     rnode.getstring(),
-                            //     rnode.kind()
-                            // );
+                            eprintln!(
+                                "{}:{:?} matches {}:{:?}",
+                                snode.getstring(),
+                                snode.kind(),
+                                rnode.getstring(),
+                                rnode.kind()
+                            );
+                            eprintln!("Mods - {:?}", env.modifiers);
                             // if snode
                             let mut t = vec![];
                             if modif.ismodif() {

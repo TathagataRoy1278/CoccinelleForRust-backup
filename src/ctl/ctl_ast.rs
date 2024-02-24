@@ -107,7 +107,7 @@ impl<Pred: Display, Mvar: Display, Anno> Display for GenericCtl<Pred, Mvar, Anno
                 GenericCtl::True => write!(f, "{}", "True"),
                 GenericCtl::Pred(p) => write!(f, "{}", *p),
                 GenericCtl::Not(ctl) => write!(f, "NOT ").and((*ctl).fmt(f)),
-                GenericCtl::Exists(_, mvar, ctl) => write!(f, "Ex ").and(write!(f, "{}", &format!("{} ", mvar))).and(ctl.fmt(f)),
+                GenericCtl::Exists(_, mvar, ctl) => write!(f, "Ex ").and(write!(f, "{}", &format!("{} (", mvar))).and(ctl.fmt(f)).and(write!(f, ")")),
                 GenericCtl::AndAny(_, _, _, _) => todo!(),
                 GenericCtl::HackForStmt(_, _, _, _) => todo!(),
                 GenericCtl::Or(c1, c2) => c1.fmt(f).and(write!(f, " OR ")).and(c2.fmt(f)),

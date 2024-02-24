@@ -703,8 +703,8 @@ where
     }
 
     fn loop_fn_conj(
-        mut ctheta: Vec<(S::Mvar, SubstitutionList<S>)>,
-        mut ctheta_prime: Vec<(S::Mvar, SubstitutionList<S>)>,
+        ctheta: Vec<(S::Mvar, SubstitutionList<S>)>,
+        ctheta_prime: Vec<(S::Mvar, SubstitutionList<S>)>,
         merge_all: impl Fn(
             &SubstitutionList<S>,
             &SubstitutionList<S>,
@@ -713,23 +713,27 @@ where
         match (ctheta.as_slice(), ctheta_prime.as_slice()) {
             ([], _) => Ok(ctheta_prime.iter().flat_map(|(_, ths)| ths.clone()).collect()),
             (_, []) => Ok(ctheta.iter().flat_map(|(_, ths)| ths.clone()).collect()),
-            (&[(ref x, ref ths)], &[(ref y, ref ths_prime)]) => match x.cmp(&y) {
+            ([(x, ths), xs @ ..], [(y, ths_prime), ys @ ..]) => match x.cmp(&y) {
                 std::cmp::Ordering::Equal => Ok(Self::safe_append(
                     merge_all(ths, ths_prime)?,
-                    Self::loop_fn_conj(
-                        ctheta[1..].to_vec(),
-                        ctheta_prime[1..].to_vec(),
-                        merge_all,
-                    )?,
+                    Self::loop_fn_conj(xs.to_vec(), ys.to_vec(), merge_all)?,
                 )),
-                std::cmp::Ordering::Less => Ok(Self::safe_append(
-                    ths.clone(),
-                    Self::loop_fn_conj(ctheta[1..].to_vec(), ctheta_prime.clone(), merge_all)?,
-                )),
-                std::cmp::Ordering::Greater => Ok(Self::safe_append(
-                    ths_prime.clone(),
-                    Self::loop_fn_conj(ctheta.clone(), ctheta_prime[1..].to_vec(), merge_all)?,
-                )),
+                std::cmp::Ordering::Less => {
+                    let mut tmp = vec![(y.clone(), ths_prime.clone())];
+                    tmp.extend(ys.to_vec());
+                    Ok(Self::safe_append(
+                        ths.clone(),
+                        Self::loop_fn_conj(xs.to_vec(), tmp, merge_all)?,
+                    ))
+                }
+                std::cmp::Ordering::Greater => {
+                    let mut tmp = vec![(x.clone(), ths.clone())];
+                    tmp.extend(xs.to_vec());
+                    Ok(Self::safe_append(
+                        ths_prime.clone(),
+                        Self::loop_fn_conj(tmp, ys.to_vec(), merge_all)?,
+                    ))
+                }
             },
             _ => panic!("ctl_engine: not possible 2"),
         }
@@ -1729,7 +1733,8 @@ where
         let label = m.1;
 
         macro_rules! satv {
-            ($unchecked:expr, $required:expr, $required_states:expr, $phi:expr, $env:expr) => {
+            ($unchecked:expr, $required:expr, $required_states:expr, $phi:expr, $env:expr) => {{
+                // eprint!("{} - > ", phi);
                 self.sat_verbose_loop(
                     $unchecked,
                     $required,
@@ -1741,7 +1746,7 @@ where
                     $phi,
                     $env,
                 )
-            };
+            }};
         }
 
         macro_rules! print_triple {
@@ -1775,7 +1780,11 @@ where
                     res: Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>,
                     children| {
             // let r = res.iter().clone().collect_vec();
-            // eprintln!("{} -> {:?}", ctl_term, res.clone().into_iter().map(|x| x.0).collect_vec());
+            // eprintln!(
+            //     "{} -> {:?}\n",
+            //     _ctl_term,
+            //     res.clone().into_iter().map(|x| x.0).collect_vec()
+            // );
             (annot(lvl, &res, children), res)
         };
 

@@ -617,9 +617,7 @@ pub fn match_nodes(
     match metavarmatch {
         MetavarMatch::Fail => fail!(),
         MetavarMatch::Maybe(a, b) => {
-            if a.kind() != b.kind() {
-                fail!()
-            }
+            fail!()
         }
         MetavarMatch::MetavarMatch => {
             let minfo = nodea.wrapper.metavar.getminfo();

@@ -485,14 +485,18 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                     }
                 }
 
-                for tree in witforest {
-                    let envs = aux(tree);
-                    //joining the envs
-                    envs.into_iter().for_each(|env| {
-                        let mut cenv = cenv.clone();
-                        cenv.add(env);
-                        genvs.push(cenv);
-                    })
+                if witforest.is_empty() {
+                    genvs.push(cenv);
+                } else {
+                    for tree in witforest {
+                        let envs = aux(tree);
+                        //joining the envs
+                        envs.into_iter().for_each(|env| {
+                            let mut cenv = cenv.clone();
+                            cenv.add(env);
+                            genvs.push(cenv);
+                        })
+                    }
                 }
             }
             GenericWitnessTree::NegWit(_) => panic!(),
@@ -504,6 +508,7 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
         //tree is one of the changes
         for wit in tree {
             let envs = aux(wit);
+            eprintln!("envs - {:?}", wit);
             envs.into_iter().for_each(|env| {
                 transformation::transform(rnode, &env);
             });
@@ -758,7 +763,7 @@ fn show_cfg(flow: &Rflow) {
 
     Command::new("xdg-open").arg("/tmp/cfg.jpg").status().expect("Could not run image-viewer.");
 
-    let _ = fs::remove_file("/tmp/.cfg.dot");
+    // let _ = fs::remove_file("/tmp/.cfg.dot");
 }
 
 fn main() {
