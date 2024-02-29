@@ -6,7 +6,7 @@ use std::{
     rc::Rc,
 };
 
-use super::ctl_engine::{Graph, Pred};
+use super::ctl_engine::{Graph, Pred, Subs, SubstitutionList};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Strict {
@@ -57,35 +57,60 @@ pub enum GenericCtl<Pred: Display, Mvar, Anno> {
     XX(Box<GenericCtl<Pred, Mvar, Anno>>, PhantomData<Anno>),
 }
 
-impl<Pred: Display, Mvar, Anno> GenericCtl<Pred, Mvar, Anno> {
-    pub fn getstring(&self) -> String {
-        match self {
-            GenericCtl::False => String::from("true"),
-            GenericCtl::True => String::from("false"),
-            GenericCtl::Pred(p) => format!("{}", p),
-            //Rest Should not be implemented
-            GenericCtl::Not(_) => todo!(),
-            GenericCtl::Exists(_, _, _) => todo!(),
-            GenericCtl::And(_, _, _) => todo!(),
-            GenericCtl::AndAny(_, _, _, _) => todo!(),
+impl<Pred: Display + Clone, Mvar: Clone, Anno: Clone> GenericCtl<Pred, Mvar, Anno> {
+    pub fn do_ctl(
+        ctl0: &mut Box<GenericCtl<Pred, Mvar, Anno>>,
+        f: &mut dyn FnMut(&mut GenericCtl<Pred, Mvar, Anno>),
+    ) {
+        match ctl0.as_mut() {
+            GenericCtl::False => {}
+            GenericCtl::True => {}
+            GenericCtl::Pred(_) => f(ctl0),
+            GenericCtl::Not(ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::Exists(keep, _, ctl) => {
+                Self::do_ctl(ctl, f);
+            }
+            GenericCtl::And(_, ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
+            GenericCtl::AndAny(_, _, ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
             GenericCtl::HackForStmt(_, _, _, _) => todo!(),
-            GenericCtl::Or(_, _) => todo!(),
-            GenericCtl::Implies(_, _) => todo!(),
-            GenericCtl::AF(_, _, _) => todo!(),
-            GenericCtl::AX(_, _, _) => todo!(),
-            GenericCtl::AG(_, _, _) => todo!(),
-            GenericCtl::AW(_, _, _, _) => todo!(),
-            GenericCtl::AU(_, _, _, _) => todo!(),
-            GenericCtl::EF(_, _) => todo!(),
-            GenericCtl::EX(_, _) => todo!(),
-            GenericCtl::EG(_, _) => todo!(),
-            GenericCtl::EU(_, _, _) => todo!(),
+            GenericCtl::Or(ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
+            GenericCtl::Implies(ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
+            GenericCtl::AF(_, _, ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::AX(_, _, ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::AG(_, _, ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::AW(_, _, ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
+            GenericCtl::AU(_, _, ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
+            GenericCtl::EF(_, ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::EX(_, ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::EG(_, ctl) => Self::do_ctl(ctl, f),
+            GenericCtl::EU(_, ctl, ctl1) => {
+                Self::do_ctl(ctl, f);
+                Self::do_ctl(ctl1, f);
+            }
             GenericCtl::Let(_, _, _) => todo!(),
             GenericCtl::LetR(_, _, _, _) => todo!(),
             GenericCtl::Ref(_) => todo!(),
             GenericCtl::SeqOr(_, _) => todo!(),
             GenericCtl::Uncheck(_) => todo!(),
-            GenericCtl::InnerAnd(_) => todo!(),
+            GenericCtl::InnerAnd(ctl) => Self::do_ctl(ctl, f),
             GenericCtl::XX(_, _) => todo!(),
         }
     }
@@ -106,8 +131,13 @@ impl<Pred: Display, Mvar: Display, Anno> Display for GenericCtl<Pred, Mvar, Anno
                 GenericCtl::False => write!(f, "{}", "False"),
                 GenericCtl::True => write!(f, "{}", "True"),
                 GenericCtl::Pred(p) => write!(f, "{}", *p),
-                GenericCtl::Not(ctl) => write!(f, "NOT ").and((*ctl).fmt(f)),
-                GenericCtl::Exists(_, mvar, ctl) => write!(f, "Ex ").and(write!(f, "{}", &format!("{} (", mvar))).and(ctl.fmt(f)).and(write!(f, ")")),
+                GenericCtl::Not(ctl) => write!(f, "NOT (").and((*ctl).fmt(f)).and(write!(f, ")")),
+                GenericCtl::Exists(keep, mvar, ctl) => {
+                    if *keep { write!(f, "Ex ") } else { write!(f, "Exnk ") }
+                        .and(write!(f, "{}", &format!("{} (", mvar)))
+                        .and(ctl.fmt(f))
+                        .and(write!(f, ")"))
+                }
                 GenericCtl::AndAny(_, _, _, _) => todo!(),
                 GenericCtl::HackForStmt(_, _, _, _) => todo!(),
                 GenericCtl::Or(c1, c2) => c1.fmt(f).and(write!(f, " OR ")).and(c2.fmt(f)),
@@ -203,6 +233,13 @@ pub enum GenericWitnessTree<State: Eq + Clone, Subst: Eq + Clone + Ord, Anno: Eq
 impl<A: Eq + Clone, B: Eq + Clone + Ord, C: Eq + Clone> GenericWitnessTree<A, B, C> {
     pub fn neg(&self) -> GenericWitnessTree<A, B, C> {
         GenericWitnessTree::NegWit(Box::new(self.clone()))
+    }
+
+    pub fn subs(&self) -> B {
+        match self {
+            GenericWitnessTree::Wit(_, subs, _, _) => subs.clone(),
+            GenericWitnessTree::NegWit(w) => w.subs(),
+        }
     }
 }
 

@@ -3,9 +3,13 @@
 use ra_ide_db::line_index::LineIndex;
 use ra_syntax::{SourceFile, SyntaxElement, SyntaxError, SyntaxNode};
 
-use crate::{commons::info::ParseInfo, parsing_cocci::{ast0::Snode, parse_cocci::processcocci}, parsing_rs::visitor_ast::work_node};
+use crate::{
+    commons::info::ParseInfo,
+    parsing_cocci::{ast0::Snode, parse_cocci::processcocci},
+    parsing_rs::visitor_ast::work_node,
+};
 
-use super::ast_rs::{Rnode, Wrap};
+use super::ast_rs::{Rcode, Rnode, Wrap};
 
 pub fn fill_wrap(lindex: &LineIndex, node: &SyntaxElement) -> Wrap {
     let sindex =
@@ -67,13 +71,16 @@ pub fn parse_stmts_snode(contents: &str) -> Vec<Snode> {
     let rule = processcocci(&wrap).0.remove(0);
     let mut node = rule.patch.minus;
 
-    let node =  node.children.remove(0)//Function;
-                                .children.remove(3)//BlockExpr
-                                .children.remove(0)
-                                .children;
-    
-    return node;
+    let node = node
+        .children
+        .remove(0) //Function;
+        .children
+        .remove(3) //BlockExpr
+        .children
+        .remove(0)
+        .children;
 
+    return node;
 }
 
 pub fn divide_fns(rnode: Rnode) -> Vec<Rnode> {
@@ -128,8 +135,7 @@ pub fn processrs_old(contents: &str) -> Result<Rnode, String> {
     Ok(rnode)
 }
 
-
-pub fn processrs(contents: &str) -> Result<Vec<Rnode>, String> {
+pub fn processrs(contents: &str) -> Result<Rcode, String> {
     //TODO put this in ast_rs.rs
     let lindex = LineIndex::new(contents);
     let parse = SourceFile::parse(contents);
@@ -137,7 +143,12 @@ pub fn processrs(contents: &str) -> Result<Vec<Rnode>, String> {
     if contents.trim().is_empty() {
         let node = parse.syntax_node();
         let kind = node.kind();
-        return Ok(vec![Rnode::new(Wrap::dummy(1), Some(SyntaxElement::Node(node)), kind, vec![])]);
+        return Ok(Rcode(vec![Rnode::new(
+            Wrap::dummy(1),
+            Some(SyntaxElement::Node(node)),
+            kind,
+            vec![],
+        )]));
     }
 
     let errors = parse.errors();
@@ -174,5 +185,5 @@ pub fn processrs(contents: &str) -> Result<Vec<Rnode>, String> {
     };
 
     let rnode = work_node(wrap_node, SyntaxElement::Node(root));
-    Ok(rnode.children)
+    Ok(Rcode(rnode.children))
 }

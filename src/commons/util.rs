@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: GPL-2.0
 
+use std::{fs, process::Command};
+
 use itertools::Itertools;
 use ra_parser::SyntaxKind;
+use rand::random;
 
 use crate::{
     parsing_cocci::ast0::{Mcodekind, Snode},
-    parsing_rs::ast_rs::Rnode,
+    parsing_rs::{ast_rs::{Rcode, Rnode}, control_flow::Rflow},
 };
 
 use regex::Regex;
+
+use super::graphviz::make_graphviz;
 
 type Tag = SyntaxKind;
 static PUNCTUATIONS: [char; 13] = [',', '.', '!', ':', ';', '?', '=', '(', ')', '[', ']', '{', '}'];
@@ -108,7 +113,7 @@ macro_rules! satvs {
 #[macro_export]
 macro_rules! deprecated {
     () => {
-        panic!("This code is no longer used.");
+        panic!("This code is no longer used.")
     };
 }
 
@@ -491,4 +496,35 @@ pub fn is_punc(s: &str) -> bool {
         ',' | '.' | '!' | ':' | ';' | '?' | '=' | '(' | ')' | '[' | ']' => true,
         _ => false,
     }
+}
+
+pub fn get_rcode(rnodes: &Rcode) -> String {
+    rnodes.0.iter().fold(String::new(), |mut acc, rnode| {
+        acc.push_str(&rnode.getstring());
+        acc.push('\n');
+        acc.push('\n');
+        acc
+    })
+}
+
+
+pub fn show_cfg(flow: &Rflow) {
+    let ra: usize = random();
+    let fname_dot = format!("/tmp/.cfg{}.dot", ra);
+    let fname_jpg = format!("/tmp/.cfg{}.jpg", ra);
+
+    make_graphviz(flow, &fname_dot);
+
+    Command::new("dot")
+        .arg("-Tjpg")
+        .arg("-o")
+        .arg(&fname_jpg)
+        .arg(&fname_dot)
+        .status()
+        .expect("Could not run dot");
+
+    Command::new("xdg-open").arg(&fname_jpg).spawn().expect("Could not run image-viewer.");
+
+    // let _ = fs::remove_file(fname_dot);
+    // let _ = fs::remove_file(fname_jpg);
 }

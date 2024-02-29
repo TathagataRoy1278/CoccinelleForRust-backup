@@ -38,6 +38,10 @@ type CTL = GenericCtl<
     Vec<String>,
 >;
 
+fn dots_has_mv(dots: &Snode) -> bool {
+    dots.children[1].wrapper.metavar.ismeta()
+}
+
 pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
     fn get_kind_pred(ctl: Box<CTL>, kind: SyntaxKind, prev_is_mvar: bool) -> Box<CTL> {
         let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind, prev_is_mvar)));
@@ -47,6 +51,32 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
             Box::new(CTL::AX(Direction::Forward, Strict::Strict, ctl)),
         );
         Box::new(fctl)
+    }
+
+    fn handle_dots(dots: &Snode, attach_end: Option<Box<CTL>>, pim: bool) -> Box<CTL> {
+        let mut a1 = aux(&dots.children[0], None, false);
+        let a2 = a1.clone();
+        let mut b1 = aux(&dots.children[1], None, false);
+        let b2 = aux(&dots.children[1], attach_end, false);
+
+        let mut f = |ctl: &mut CTL| match ctl {
+            CTL::Pred(p) => p.set_unmodif(),
+            CTL::Exists(keep, _, _) => {}
+            _ => {}
+        };
+
+        CTL::do_ctl(&mut b1, &mut f);
+        CTL::do_ctl(&mut a1, &mut f);
+
+        let tmp1 = CTL::Not(Box::new(CTL::Or(a1, b1)));
+        let tmp2 = CTL::AU(Direction::Forward, Strict::Strict, Box::new(tmp1), b2);
+        // let res = CTL::And(
+        //     Strict::Strict,
+        //     a2,
+        //     Box::new(CTL::AX(Direction::Forward, Strict::Strict, Box::new(tmp2))),
+        // );
+
+        aux(&dots.children[0], Some(Box::new(tmp2)), pim)
     }
 
     fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
@@ -81,43 +111,46 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
             }
         }
 
-        if snode.children.is_empty() || snode.wrapper.metavar.ismeta() {
+        if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
+            if !snode.is_dots {
+                let tmpp = if snode.wrapper.is_modded {
+                    Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar)))
+                } else {
+                    Box::new(CTL::Pred(Predicate::Match(
+                        snode.clone(),
+                        Modif::Unmodif,
+                        prev_is_mvar,
+                    )))
+                };
 
-            let tmpp = if snode.wrapper.is_modded {
-                Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar)))
-            } else {
-                Box::new(CTL::Pred(Predicate::Match(
-                    snode.clone(),
-                    Modif::Unmodif,
-                    prev_is_mvar,
-                )))
-            };
+                let tmpp = if snode.wrapper.is_modded {
+                    //is minused or has pluses attached to it
+                    Box::new(CTL::Exists(true, MetavarName::create_v(), tmpp))
+                } else {
+                    tmpp
+                };
 
-            let nextctl = if let Some(mut attach_end) = attach_end {
+                let nextctl = if let Some(mut attach_end) = attach_end {
+                    if snode.wrapper.metavar.ismeta() {
+                        set_pm_true(&mut attach_end);
+                    }
+
+                    Box::new(CTL::And(
+                        Strict::Strict,
+                        tmpp,
+                        Box::new(CTL::AX(Direction::Forward, Strict::Strict, attach_end)),
+                    ))
+                } else {
+                    tmpp
+                };
+
                 if snode.wrapper.metavar.ismeta() {
-                    set_pm_true(&mut attach_end);
+                    Box::new(CTL::Exists(true, snode.wrapper.metavar.getminfo().0.clone(), nextctl))
+                } else {
+                    nextctl
                 }
-                
-                Box::new(CTL::And(
-                    Strict::Strict,
-                    tmpp,
-                    Box::new(CTL::AX(Direction::Forward, Strict::Strict, attach_end)),
-                ))
             } else {
-                tmpp
-            };
-
-            let c = if snode.wrapper.is_modded {
-                //is minused or has pluses attached to it
-                Box::new(CTL::Exists(true, MetavarName::create_v(), nextctl))
-            } else {
-                nextctl
-            };
-
-            if snode.wrapper.metavar.ismeta() {
-                Box::new(CTL::Exists(true, snode.wrapper.metavar.getminfo().0.clone(), c))
-            } else {
-                c
+                handle_dots(snode, attach_end, prev_is_mvar)
             }
         } else if snode.children.len() == 1 {
             let ctl = aux(&snode.children[0], attach_end, false);
@@ -126,14 +159,21 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
             let skind = snode.kind();
             let mut rev_iter = snode.children.iter().rev().peekable();
             let mut snode = rev_iter.next().unwrap();
-            let mut spb = rev_iter.peek().unwrap().wrapper.metavar.ismeta();
-            eprintln!("{} - {}", rev_iter.peek().unwrap().getstring(), spb);
+            let prev_node = rev_iter.peek().unwrap();
+
+            //Except at the top and bottom of the file
+            //All comments are preceded and succeeded by other nodes
+            //on the same level. I know it sounds weird.
+
+            let mut spb = prev_node.wrapper.metavar.ismeta()
+                || (prev_node.is_dots && dots_has_mv(&prev_node));
             let mut ctl = aux(snode, attach_end, spb);
             // let mut spb: bool;
 
             while rev_iter.len() != 0 {
                 // let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
                 // ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
+
                 snode = rev_iter.next().unwrap();
                 spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
                 ctl = aux(snode, Some(ctl), spb);
@@ -141,14 +181,6 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
             get_kind_pred(ctl, skind, prev_is_mvar)
         }
     }
-
-    // let f = snodes.remove(snodes.len() - 1);
-    // let ctl = aux(&f, None);
-    // *snodes.iter().rev().fold(ctl, |ctl, snode| {
-    //     todo!();
-    //     let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
-    //     Box::new(CTL::And(Strict::Strict, aux(snode, None), Box::new(p)))
-    // })
 
     let ctl = aux(snode, None, false);
     match *ctl {

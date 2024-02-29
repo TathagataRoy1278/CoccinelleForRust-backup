@@ -1402,7 +1402,7 @@ where
                 first if first.is_empty() => Auok::Auok(y.to_vec()),
                 first => {
                     let res = Self::triples_union(&first, y);
-                    let new_info = first;
+                    let new_info = setdiff(res.clone(), y);
                     Self::satAU_f(dir, m, s1, reqst, &res, &new_info)
                 }
             }
@@ -1776,14 +1776,21 @@ where
         //     )
         // };
 
-        let anno = |_ctl_term: &'static str,
+        let anno = |_ctl_term: String,
                     res: Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>,
                     children| {
             // let r = res.iter().clone().collect_vec();
-            // eprintln!(
-            //     "{} -> {:?}\n",
+            // eprint!(
+            //     "{} -> {:?}. Wits - ",
             //     _ctl_term,
             //     res.clone().into_iter().map(|x| x.0).collect_vec()
+            // );
+            // eprintln!(
+            //     "{:?}\n",
+            //     res.clone()
+            //         .into_iter()
+            //         .map(|x| x.2.iter().map(|y| (x.0.clone(), y.subs())).collect_vec())
+            //         .collect_vec()
             // );
             (annot(lvl, &res, children), res)
         };
@@ -1792,15 +1799,15 @@ where
             unimplemented!();
         } else {
             let (child, res) = match phi {
-                GenericCtl::False => anno("False", vec![], vec![]),
-                GenericCtl::True => anno("True", Self::triples_top(&states), vec![]),
+                GenericCtl::False => anno("False".to_string(), vec![], vec![]),
+                GenericCtl::True => anno("True".to_string(), Self::triples_top(&states), vec![]),
                 GenericCtl::Pred(p) => {
-                    anno("Pred", Self::sat_label(self, label, required, p), vec![])
+                    anno(format!("{}", p), Self::sat_label(self, label, required, p), vec![])
                 }
                 GenericCtl::Not(phi1) => {
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     anno(
-                        "Not",
+                        format!("NOT ({})", phi1),
                         Self::triples_complement(&mkstates(&states, &required_states), &res1),
                         vec![child1],
                     )
@@ -1809,17 +1816,16 @@ where
                     let new_required = self.drop_required(v, required);
                     let (child, res) = satv!(unchecked, &new_required, required_states, phi, env);
                     anno(
-                        "Exists",
+                        format!("Exists({}, {})", v, phi),
                         Self::triples_witness(self, &v, unchecked, !keep, &res),
                         vec![child],
                     )
                 }
                 GenericCtl::And(strict, phi1, phi2) => {
                     let pm = self.ctl_flags.PARTIAL_MATCH; //PARTIAL_MATCH
+                    let st = format!("AND {} & {}", phi1, phi2);
                     match (pm, satv!(unchecked, required, required_states, phi1, env)) {
-                        (false, (child1, res)) if res.is_empty() => {
-                            anno("And", vec![], vec![child1])
-                        }
+                        (false, (child1, res)) if res.is_empty() => anno(st, vec![], vec![child1]),
                         (_, (child1, res1)) => {
                             let new_required = self.extend_required(&res1, &required);
                             let new_required_states = self.get_required_states(&res1);
@@ -1828,7 +1834,7 @@ where
                                 satv!(unchecked, &new_required, &new_required_states, phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
-                                    anno("And", vec![], vec![child1, child2])
+                                    anno(st, vec![], vec![child1, child2])
                                 }
                                 (_, (child2, res2)) => {
                                     let res = self.strict_triples_conj(
@@ -1837,7 +1843,7 @@ where
                                         &res1,
                                         &res2,
                                     );
-                                    anno("And", res, vec![child1, child2])
+                                    anno(st, res, vec![child1, child2])
                                 }
                             }
                         }
@@ -1845,10 +1851,9 @@ where
                 }
                 GenericCtl::AndAny(dir, strict, phi1, phi2) => {
                     let pm = self.ctl_flags.PARTIAL_MATCH;
+                    let st = format!("AndAny {} & {}", phi1, phi2);
                     match (pm, satv!(unchecked, required, required_states, phi1, env)) {
-                        (false, (child1, res)) if res.is_empty() => {
-                            anno("AndAny", vec![], vec![child1])
-                        }
+                        (false, (child1, res)) if res.is_empty() => anno(st, vec![], vec![child1]),
                         (_, (child1, res1)) => {
                             let new_required = self.extend_required(&res1, &required);
                             let new_required_states = self.get_required_states(&res1);
@@ -1860,12 +1865,12 @@ where
                                 satv!(unchecked, &new_required, &new_required_states, phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
-                                    anno("AndAny", res1, vec![child1, child2])
+                                    anno(st, res1, vec![child1, child2])
                                 }
                                 (_, (child2, res2)) => match res1.as_slice() {
                                     [] => {
                                         if res2.is_empty() {
-                                            anno("AndAny", vec![], vec![child1, child2])
+                                            anno(st, vec![], vec![child1, child2])
                                         } else {
                                             let res = res2[1..].iter().fold(
                                                 vec![res2[0].clone()],
@@ -1879,7 +1884,7 @@ where
                                                     )
                                                 },
                                             );
-                                            anno("AndAny", res, vec![child1, child2])
+                                            anno(st, res, vec![child1, child2])
                                         }
                                     }
                                     [(state, _, _)] => {
@@ -1907,7 +1912,7 @@ where
                                                 None => a,
                                             }
                                         });
-                                        anno("AndAny", res, vec![child1, child2])
+                                        anno(st, res, vec![child1, child2])
                                     }
                                     _ => {
                                         panic!("only one result allowed for the left arg of AndAny")
@@ -1923,7 +1928,11 @@ where
                 GenericCtl::Or(phi1, phi2) => {
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     let (child2, res2) = satv!(unchecked, required, required_states, phi2, env);
-                    anno("Or", Self::triples_union(&res1, &res2), vec![child1, child2])
+                    anno(
+                        format!("OR {} | {}", phi1, phi2),
+                        Self::triples_union(&res1, &res2),
+                        vec![child1, child2],
+                    )
                 }
                 GenericCtl::Implies(phi1, phi2) => {
                     satv!(
@@ -1956,7 +1965,7 @@ where
                             &res,
                             &new_required_states,
                         );
-                        anno("AF", res, vec![child])
+                        anno(format!("AF {}", phi1), res, vec![child])
                     }
                 }
                 GenericCtl::AX(dir, strict, phi1) => {
@@ -1972,7 +1981,7 @@ where
                         &res,
                         &required_states,
                     );
-                    anno("AX", res, vec![child])
+                    anno(format!("AX {}", phi1), res, vec![child])
                 }
                 GenericCtl::AG(dir, strict, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
@@ -1986,15 +1995,16 @@ where
                         &res,
                         &new_required_states,
                     );
-                    anno("AG", res, vec![child])
+                    anno(format!("AG {}", phi1), res, vec![child])
                 }
                 GenericCtl::AW(_, _, _, _) => {
                     panic!("Should not be used")
                 }
                 GenericCtl::AU(dir, strict, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
+                    let st = format!("A[{} U {}]", phi1, phi2);
                     match satv!(unchecked, required, &new_required_states, phi2, env) {
-                        (child2, v) if v.is_empty() => anno("AU", vec![], vec![child2]),
+                        (child2, v) if v.is_empty() => anno(st, vec![], vec![child2]),
                         (child2, s2) => {
                             let new_required = self.extend_required(&s2, &required);
                             let (child1, s1) =
@@ -2010,7 +2020,7 @@ where
                                 &new_required_states,
                             );
                             match res {
-                                Auok::Auok(res) => anno("AU", res, vec![child1, child2]),
+                                Auok::Auok(res) => anno(st, res, vec![child1, child2]),
                                 Auok::AuFailed(tmp_res) => {
                                     let s1 = Self::triples_conj(
                                         &Self::satEU(&dir, m, &s1, &tmp_res, &new_required_states),
@@ -2026,7 +2036,7 @@ where
                                         &s2,
                                         &new_required_states,
                                     );
-                                    anno("AU", res, vec![child1, child2])
+                                    anno(st, res, vec![child1, child2])
                                 }
                             }
                         }
@@ -2035,29 +2045,43 @@ where
                 GenericCtl::EF(dir, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
                     let (child, res) = satv!(unchecked, required, &new_required_states, phi1, env);
-                    anno("EF", Self::satEF(&dir, m, &res, &new_required_states), vec![child])
+                    anno(
+                        format!("EF {}", phi1),
+                        Self::satEF(&dir, m, &res, &new_required_states),
+                        vec![child],
+                    )
                 }
                 GenericCtl::EX(dir, phi) => {
                     let new_required_states =
                         self.get_children_required_states(&dir, m, required_states);
                     let (child, res) = satv!(unchecked, required, &new_required_states, phi, env);
-                    anno("EX", Self::satEX(&dir, m, &res, &required_states), vec![child])
+                    anno(
+                        format!("EX {}", phi),
+                        Self::satEX(&dir, m, &res, &required_states),
+                        vec![child],
+                    )
                 }
                 GenericCtl::EG(dir, phi1) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
                     let (child, res) = satv!(unchecked, required, &new_required_states, phi1, env);
-                    anno("EG", Self::satEG(&dir, m, &res, &new_required_states), vec![child])
+                    anno(
+                        format!("EG {}", phi1),
+                        Self::satEG(&dir, m, &res, &new_required_states),
+                        vec![child],
+                    )
                 }
                 GenericCtl::EU(dir, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
                     match (satv!(unchecked, required, &new_required_states, phi2, env)) {
-                        (child2, v) if v.is_empty() => anno("EU", vec![], vec![child2]),
+                        (child2, v) if v.is_empty() => {
+                            anno(format!("E[{} U {}]", phi1, phi2), vec![], vec![child2])
+                        }
                         (child2, res2) => {
                             let new_required = self.extend_required(&res2, required);
                             let (child1, res1) =
                                 satv!(unchecked, &new_required, &new_required_states, phi1, env);
                             anno(
-                                "EU",
+                                format!("E[{} U {}]", phi1, phi2),
                                 Self::satEU(&dir, m, &res1, &res2, &new_required_states),
                                 vec![child1, child2],
                             )
@@ -2069,7 +2093,7 @@ where
                     let mut q = vec![(v.clone(), res1)];
                     q.extend(env.clone());
                     let (child2, res2) = satv!(unchecked, required, required_states, phi2, &q);
-                    anno("LET", res2, vec![child1, child2])
+                    anno("LET".to_string(), res2, vec![child1, child2])
                 }
                 GenericCtl::LetR(dir, v, phi1, phi2) => {
                     let new_required_states = self.get_reachable(&dir, m, required_states);
@@ -2078,7 +2102,7 @@ where
                     let mut q = vec![(v.clone(), res1)];
                     q.extend(env.clone());
                     let (child2, res2) = satv!(unchecked, required, required_states, phi2, &q);
-                    anno("LETR", res2, vec![child1, child2])
+                    anno("LETR".to_string(), res2, vec![child1, child2])
                 }
                 GenericCtl::Ref(v) => {
                     let res = &env.iter().find(|(v1, res)| v == v1).unwrap().1;
@@ -2089,7 +2113,7 @@ where
                     } else {
                         res.clone()
                     };
-                    anno("Ref", res, vec![])
+                    anno("Ref".to_string(), res, vec![])
                 }
                 GenericCtl::SeqOr(phi1, phi2) => {
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
@@ -2100,13 +2124,13 @@ where
                     let pm = self.ctl_flags.PARTIAL_MATCH;
                     match (pm, &res1, &res2) {
                         (false, _res1, res2) if res2.is_empty() => {
-                            anno("SeqOr", res1, vec![child1, child2])
+                            anno("SeqOr".to_string(), res1, vec![child1, child2])
                         }
                         (false, res1, _res2) if res1.is_empty() => {
-                            anno("SeqOr", res2, vec![child1, child2])
+                            anno("SeqOr".to_string(), res2, vec![child1, child2])
                         }
                         _ => anno(
-                            "SeqOr",
+                            "SeqOr".to_string(),
                             Self::triples_union(
                                 &res1,
                                 &Self::triples_conj(
@@ -2124,11 +2148,11 @@ where
                 GenericCtl::Uncheck(phi1) => {
                     let unchecked = pREQUIRED_ENV_OPT;
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
-                    anno("Uncheck", res1, vec![child1])
+                    anno("Uncheck".to_string(), res1, vec![child1])
                 }
                 GenericCtl::InnerAnd(phi1) => {
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
-                    anno("InnerAnd", res1, vec![child1])
+                    anno("InnerAnd".to_string(), res1, vec![child1])
                 }
                 GenericCtl::XX(_, _) => {
                     unimplemented!()

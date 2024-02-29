@@ -4,7 +4,7 @@ use crate::{commons::ograph_extended::EdgeType, parsing_rs::control_flow::Rflow}
 
 use super::ograph_extended::NodeIndex;
 
-pub fn make_graphviz(graph: &Rflow, filename: &'static str) {
+pub fn make_graphviz(graph: &Rflow, filename: &str) {
     fn aux(
         node: NodeIndex,
         graph: &Rflow,

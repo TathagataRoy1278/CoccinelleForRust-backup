@@ -19,7 +19,7 @@ fn ttree_to_expr_list(tt: String) -> Vec<Snode> {
         tt
     );
 
-    let mut rnode = wrap_root(&wrapped);
+    let mut rnode = wrap_root(&wrapped, vec![]);
     let mut args = rnode.children[0] //fn
         .children[3] //blockexpr
         .children[0] //stmtlist
@@ -76,6 +76,11 @@ pub fn work_node<'a>(
                                     Some(String::from(child.to_string().as_bytes()[2] as char));
                                 //in the next iteration the node gets the modkind
                             }
+                            else if child.to_string().eq(WILDCARD) {
+                                let wc = Snode::make_wildcard();
+                                children.push(wc);
+                                modkind = None;
+                            }
                         }
                         Tag::TOKEN_TREE => {
                             let mut exprlist =
@@ -91,18 +96,18 @@ pub fn work_node<'a>(
                             });
                             children.extend(exprlist);
                         }
-                        Tag::PATH_EXPR if child.to_string() == WILDCARD => {
-                            let snode = Snode::make_wildcard();
-                            children.push(snode);
+                        // Tag::PATH_EXPR if child.to_string() == WILDCARD => {
+                        //     let snode = Snode::make_wildcard();
+                        //     children.push(snode);
 
-                            modkind = None;
-                        }
-                        Tag::PARAM if child.to_string() == WILDCARD => {
-                            let snode = Snode::make_wildcard();
-                            children.push(snode);
+                        //     modkind = None;
+                        // }
+                        // Tag::PARAM if child.to_string() == WILDCARD => {
+                        //     let snode = Snode::make_wildcard();
+                        //     children.push(snode);
 
-                            modkind = None;
-                        }
+                        //     modkind = None;
+                        // }
                         _ => {
                             children.push(work_node(lindex, wrap_node, child, modkind.clone()));
                             modkind = None;

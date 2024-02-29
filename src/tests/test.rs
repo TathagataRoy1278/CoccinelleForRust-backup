@@ -1,9 +1,7 @@
 fn main() {
-    test();
-    a;
-    hello();
-    hehehehhe;
-    bobatunnel();
-    
-    b
+    let a: disj![
+        a, b
+    ];
+
+    let a = mac!(1);
 }

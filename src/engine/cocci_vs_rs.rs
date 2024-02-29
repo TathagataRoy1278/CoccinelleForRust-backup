@@ -215,7 +215,7 @@ impl<'a, 'b> Looper {
 
             //This takes care of when node types dont match but we still
             //want to work on them or it is a WILDCARD
-            if !a.is_wildcard {
+            if !a.is_dots {
                 if EXCEPTIONAL_MATCHES.contains(&(akind, bkind)) {
                     (a, b, pluses) = self.exceptional_workon(a, b);
                     //println!("{:?} ===== {:?} --> {} ::: Exceptional", akind, bkind, b.getunformatted());
@@ -421,7 +421,7 @@ impl<'a, 'b> Looper {
         // If not it is because node1 is a wildcard or
         // their kinds exist in EXCEPTINAL_MATCHES
 
-        if node1.is_wildcard {
+        if node1.is_dots {
             return MetavarMatch::WildMatch;
         }
 

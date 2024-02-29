@@ -11,9 +11,44 @@ use tempfile::NamedTempFile;
 use SyntaxKind::*;
 
 use crate::commons::info;
-use crate::commons::util::remexspaces;
+use crate::commons::util::{get_rcode, remexspaces};
 
 type VirtualPosition = (info::ParseInfo, usize);
+
+pub struct Rcode(pub Vec<Rnode>);
+
+impl Rcode {
+    pub fn getstring(&self) -> String {
+        get_rcode(self)
+    }
+
+    pub fn getunformatted(&self) -> String {
+        self.0.iter().fold(String::new(), |mut acc, rnode| {
+            acc.push_str(&rnode.getunformatted());
+            acc.push('\n');
+            acc.push('\n');
+            acc
+        })
+    }
+
+    pub fn writetotmpnamedfile(&self, randfile: &NamedTempFile) {
+        let data = self.getstring();
+        randfile
+            .as_file()
+            .write_all(data.as_bytes())
+            .expect("The project directory must be writable by cfr");
+        //write!(randfile, "{}", &data).expect("The project directory must be writable by cfr.");
+    }
+
+    pub fn writeunformatted(&self, randfile: &NamedTempFile) {
+        let data = self.getunformatted();
+        randfile
+            .as_file()
+            .write_all(data.as_bytes())
+            .expect("The project directory must be writable by cfr");
+        //write!(randfile, "{}", &data).expect("The project directory must be writable by cfr.");
+    }
+}
 
 #[derive(Clone, PartialEq)]
 pub enum ParseInfo {

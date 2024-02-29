@@ -16,7 +16,7 @@ use std::{collections::HashSet, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
-    commons::{util::{self, attach_pluses_back, attach_pluses_front, collecttree, removestmtbraces, worksnode}, info::WILDCARD}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl}, debugcocci, engine::ctl_cocci::{Predicate, SubOrMod}, parsing_cocci::ast0::MetavarType, parsing_rs::ast_rs::Rnode, syntaxerror
+    commons::{info::WILDCARD, util::{self, attach_pluses_back, attach_pluses_front, collecttree, getstmtlist, removestmtbraces, worksnode}}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl_simple}, debugcocci, engine::ctl_cocci::{Predicate, SubOrMod}, parsing_cocci::ast0::MetavarType, syntaxerror
 };
 use ra_parser::SyntaxKind;
 
@@ -384,7 +384,7 @@ fn getdep(rules: &Vec<Rule>, lino: usize, dep: &mut Snode) -> Dep {
 }
 
 fn get_blxpr(contents: &str) -> Snode {
-    wrap_root(contents)
+    wrap_root(contents, vec![])
         .children
         .swap_remove(0) //Fn
         .children
@@ -455,7 +455,7 @@ fn getpatch(
 ) -> Patch {
     let plusbuf = format!("{}{}", "\n".repeat(llino), plusbuf);
     let minusbuf = format!("{}{}", "\n".repeat(llino), minusbuf);
-    let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str()) };
+    let mut p = Patch { plus: wrap_root(plusbuf.as_str(), vec![]), minus: wrap_root(minusbuf.as_str(), vec![]) };
     p.setmetavars(metavars);
     p.setminus();
     removestmtbraces(&mut p.minus);
@@ -528,7 +528,7 @@ fn buildrule(
         }
     }
 
-    let ctl = make_ctl(&currpatch);
+    let ctl = make_ctl_simple(getstmtlist(&currpatch.minus), false);
 
     let rule = Rule {
         name: Name::from(currrulename),

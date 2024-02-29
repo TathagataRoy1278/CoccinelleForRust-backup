@@ -16,6 +16,7 @@ use coccinelleforrust::engine::cocci_vs_rs::{match_nodes, Environment, Modifiers
 use coccinelleforrust::engine::ctl_cocci::{self, processctl, CWitnessTree, Predicate, SubOrMod};
 use coccinelleforrust::parsing_cocci::ast0::MetavarName;
 use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
+use coccinelleforrust::parsing_rs::ast_rs::Rcode;
 use coccinelleforrust::parsing_rs::control_flow::{ast_to_flow, asts_to_flow, Rflow};
 use coccinelleforrust::parsing_rs::parse_rs::{
     parse_stmts_snode, processrs, processrs_old, processrswithsemantics,
@@ -126,7 +127,7 @@ pub fn adjustformat(node1: &mut Rnode, node2: &Rnode, mut line: Option<usize>) -
 /// the file prior to modification.
 fn getformattedfile(
     cfr: &CoccinelleForRust,
-    transformedcode: &mut Rnode,
+    transformedcode: &mut Rcode,
     targetpath: &str,
 ) -> (String, String) {
     //eprintln!("Dealing with - {}", targetpath);
@@ -211,7 +212,9 @@ fn getformattedfile(
         //  processrs(&fs::read_to_string(&randrustfile).expect("Could not read")).unwrap();
 
         // eprintln!("Formatted - {}", formattednode.getunformatted());
-        adjustformat(transformedcode, &formattednode, None);
+        transformedcode.0.iter_mut().for_each(|rnode| {
+            adjustformat(rnode, &formattednode, None);
+        });
         randfile = NamedTempFile::new().expect("Cannot create temporary file.");
         randrustfile = randfile.path().to_str().expect("Cannot get temporary file.");
         transformedcode.writetotmpnamedfile(&randfile);
@@ -238,7 +241,7 @@ fn getformattedfile(
 
 fn showdiff(
     args: &CoccinelleForRust,
-    transformedcode: &mut Rnode,
+    transformedcode: &mut Rcode,
     targetpath: &str,
     hasstars: bool,
 ) {
@@ -273,9 +276,9 @@ fn showdiff(
 
 fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
     let patchstring = fs::read_to_string(&args.coccifile).expect("Could not read file.");
-    let (_, needsti, _) = processcocci(&patchstring);
+    // let (_, needsti, _) = processcocci(&patchstring);
 
-    if !needsti {
+    if true {
         let transform = |targetpath: &String| {
             //eprintln!("Processing {}", targetpath);
             let (rules, _, hasstars) = processcocci(&patchstring);
@@ -286,7 +289,7 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
 
             let rcode = fs::read_to_string(&targetpath)
                 .expect(&format!("{} {}", "Could not read file", targetpath));
-            let transformedcode = transformation::transformfile(&rules, rcode);
+            let transformedcode = transformation::transformfile(args, &rules, rcode);
             let mut transformedcode = match transformedcode {
                 Ok(node) => node,
                 Err(error) => {
@@ -310,53 +313,53 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
             files.iter().for_each(transform);
         }
     } else {
-        if files.len() == 0 {
-            return;
-        }
+        // if files.len() == 0 {
+        //     return;
+        // }
 
-        let (host, vfs) = gettypedb(&files[0]);
-        let db = host.raw_database();
-        //let semantics = &mut Semantics::new(db);
-        let semantics = &Semantics::new(db);
+        // let (host, vfs) = gettypedb(&files[0]);
+        // let db = host.raw_database();
+        // //let semantics = &mut Semantics::new(db);
+        // let semantics = &Semantics::new(db);
 
-        let transform = |targetpath: &String| {
-            let (rules, _needsti, hasstars) = processcocci(&patchstring);
-            let fileid = vfs
-                .file_id(&VfsPath::new_real_path(targetpath.clone()))
-                .expect(&format!("Could not get FileId for file {}", &targetpath));
-            let syntaxnode = semantics.parse_or_expand(fileid.into());
-            let rcode = fs::read_to_string(targetpath).expect("Could not read file");
+        // let transform = |targetpath: &String| {
+        //     let (rules, _needsti, hasstars) = processcocci(&patchstring);
+        //     let fileid = vfs
+        //         .file_id(&VfsPath::new_real_path(targetpath.clone()))
+        //         .expect(&format!("Could not get FileId for file {}", &targetpath));
+        //     let syntaxnode = semantics.parse_or_expand(fileid.into());
+        //     let rcode = fs::read_to_string(targetpath).expect("Could not read file");
 
-            let mut rnode = processrswithsemantics(&rcode, syntaxnode)
-                .expect("Could not convert SyntaxNode to Rnode");
+        //     let mut rnode = processrswithsemantics(&rcode, syntaxnode)
+        //         .expect("Could not convert SyntaxNode to Rnode");
 
-            set_types(&mut rnode, semantics, db);
+        //     set_types(&mut rnode, semantics, db);
 
-            let transformedcode = transformation::transformrnode(&rules, rnode);
+        //     let transformedcode = transformation::transformrnodes(&rules, rnode);
 
-            let mut transformedcode = match transformedcode {
-                Ok(node) => node,
-                Err(error) => {
-                    //failedfiles.push((error, targetpath));
-                    match error {
-                        TARGETERROR(msg, _) => eprintln!("{}", msg),
-                        RULEERROR(msg, error, _) => eprintln!("{}:{}", msg, error),
-                    }
-                    println!("Failed to transform {}", targetpath);
-                    return;
-                }
-            };
+        //     let mut transformedcode = match transformedcode {
+        //         Ok(node) => node,
+        //         Err(error) => {
+        //             //failedfiles.push((error, targetpath));
+        //             match error {
+        //                 TARGETERROR(msg, _) => eprintln!("{}", msg),
+        //                 RULEERROR(msg, error, _) => eprintln!("{}:{}", msg, error),
+        //             }
+        //             println!("Failed to transform {}", targetpath);
+        //             return;
+        //         }
+        //     };
 
-            showdiff(args, &mut transformedcode, targetpath, hasstars);
-            //transformrnode(&rules, rnode);
-        };
+        //     showdiff(args, &mut transformedcode, targetpath, hasstars);
+        //     //transformrnode(&rules, rnode);
+        // };
 
-        if !args.no_parallel {
-            todo!("Parallel for type inference has not been implemented.");
-            //files.par_iter().for_each(transform);
-        } else {
-            files.iter().for_each(transform);
-        }
+        // if !args.no_parallel {
+        //     todo!("Parallel for type inference has not been implemented.");
+        //     //files.par_iter().for_each(transform);
+        // } else {
+        //     files.iter().for_each(transform);
+        // }
     };
 }
 
@@ -410,64 +413,61 @@ fn visit_dirs(dir: &Path, ignore: &str, cb: &mut dyn FnMut(&DirEntry)) -> io::Re
     Ok(())
 }
 
-fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
-    // let bindings = vec![];
-    fn aux(tree: &CWitnessTree, mut env: Environment) -> (Environment, Vec<Modifiers>) {
-        match tree {
-            GenericWitnessTree::Wit(noden, subst, _, rtree) => {
-                let mut mods = vec![];
-                let mut mbindings = vec![];
+// fn transform_prog(tree: CWitnessTree, rnode: &mut Rnode) {
+//     // let bindings = vec![];
+//     fn aux(tree: &CWitnessTree, mut env: Environment) -> (Environment, Vec<Modifiers>) {
+//         match tree {
+//             GenericWitnessTree::Wit(noden, subst, _, rtree) => {
+//                 let mut mods = vec![];
+//                 let mut mbindings = vec![];
 
-                for m in subst {
-                    match m {
-                        GenericSubst::Subst(mvar, val) => match val {
-                            SubOrMod::Sub(rnode) => {
-                                mbindings.push(MetavarBinding::from_subs(
-                                    mvar.clone(),
-                                    rnode.clone(),
-                                    false,
-                                ));
-                                //rnode here is an Rc<> so only the reference is copied
-                            }
-                            SubOrMod::Mod(snodes, modifs) => mods.push(modifs),
-                        },
-                        GenericSubst::NegSubst(mvar, val) => match val {
-                            SubOrMod::Sub(rnode) => mbindings.push(MetavarBinding::from_subs(
-                                mvar.clone(),
-                                rnode.clone(),
-                                true,
-                            )),
-                            SubOrMod::Mod(snodes, modifs) => {
-                                panic!("There shouldnt be mods in NegSubst")
-                            }
-                        },
-                    }
-                }
-                if mbindings.len() != 0 {
-                    assert_eq!(mods.len(), 0);
+//                 for m in subst {
+//                     match m {
+//                         GenericSubst::Subst(mvar, val) => match val {
+//                             SubOrMod::Sub(rnode) => {
+//                                 mbindings.push(MetavarBinding::from_subs(
+//                                     mvar.clone(),
+//                                     rnode.clone(),
+//                                     false,
+//                                 ));
+//                                 //rnode here is an Rc<> so only the reference is copied
+//                             }
+//                             SubOrMod::Mod(snodes, modifs) => mods.push(modifs),
+//                         },
+//                         GenericSubst::NegSubst(mvar, val) => match val {
+//                             SubOrMod::Sub(rnode) => mbindings.push(MetavarBinding::from_subs(
+//                                 mvar.clone(),
+//                                 rnode.clone(),
+//                                 true,
+//                             )),
+//                             SubOrMod::Mod(snodes, modifs) => {
+//                                 panic!("There shouldnt be mods in NegSubst")
+//                             }
+//                         },
+//                     }
+//                 }
+//                 if mbindings.len() != 0 {
+//                     assert_eq!(mods.len(), 0);
 
-                    env.addbindings(&mbindings.iter().collect_vec());
-                    todo!()
-                } else {
-                    panic!("Should not come here");
-                }
-            }
-            GenericWitnessTree::NegWit(wit) => aux(wit, env),
-        }
-    }
+//                     env.addbindings(&mbindings.iter().collect_vec());
+//                     todo!()
+//                 } else {
+//                     panic!("Should not come here");
+//                 }
+//             }
+//             GenericWitnessTree::NegWit(wit) => aux(wit, env),
+//         }
+//     }
 
-    // let bindings =
-}
+//     // let bindings =
+// }
 
 fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
-    let mut modifiers = Modifiers { pluses: vec![], minuses: vec![] };
-    let mut env = Environment::new();
-
     fn aux(wit: &CWitnessTree) -> Vec<Environment> {
         let mut genvs = vec![];
         let mut cenv = Environment::new();
         match wit {
-            GenericWitnessTree::Wit(state, subs, _, witforest) => {
+            GenericWitnessTree::Wit(_state, subs, _, witforest) => {
                 for sub in subs {
                     match sub {
                         GenericSubst::Subst(mvar, value) => match value {
@@ -499,7 +499,7 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                     }
                 }
             }
-            GenericWitnessTree::NegWit(_) => panic!(),
+            GenericWitnessTree::NegWit(_) => {}
         }
         return genvs;
     }
@@ -508,7 +508,6 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
         //tree is one of the changes
         for wit in tree {
             let envs = aux(wit);
-            eprintln!("envs - {:?}", wit);
             envs.into_iter().for_each(|env| {
                 transformation::transform(rnode, &env);
             });
@@ -569,33 +568,33 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
 //     }
 // }
 
-fn transform_old(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
-    for tree in trees {
-        //tree is one of the changes
-        for wit in tree {
-            match wit {
-                GenericWitnessTree::Wit(_, wits, _, _) => {
-                    for wit in wits {
-                        match wit {
-                            GenericSubst::Subst(mvar, subs) => match subs {
-                                SubOrMod::Sub(_) => panic!(
-                                    "I do not have the strength today to implement substitutions"
-                                ),
-                                SubOrMod::Mod(_, mods) => {
-                                    let mut env = Environment::new();
-                                    env.modifiers = mods.clone();
-                                    transformation::transform(rnode, &env);
-                                }
-                            },
-                            GenericSubst::NegSubst(_, _) => todo!(),
-                        }
-                    }
-                }
-                GenericWitnessTree::NegWit(_) => todo!(),
-            }
-        }
-    }
-}
+// fn transform_old(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+//     for tree in trees {
+//         //tree is one of the changes
+//         for wit in tree {
+//             match wit {
+//                 GenericWitnessTree::Wit(_, wits, _, _) => {
+//                     for wit in wits {
+//                         match wit {
+//                             GenericSubst::Subst(mvar, subs) => match subs {
+//                                 SubOrMod::Sub(_) => panic!(
+//                                     "I do not have the strength today to implement substitutions"
+//                                 ),
+//                                 SubOrMod::Mod(_, mods) => {
+//                                     let mut env = Environment::new();
+//                                     env.modifiers = mods.clone();
+//                                     transformation::transform(rnode, &env);
+//                                 }
+//                             },
+//                             GenericSubst::NegSubst(_, _) => todo!(),
+//                         }
+//                     }
+//                 }
+//                 GenericWitnessTree::NegWit(_) => todo!(),
+//             }
+//         }
+//     }
+// }
 
 fn run_test(args: &CoccinelleForRust) {
     // let contents = fs::read_to_string(&args.coccifile).unwrap();
@@ -692,7 +691,7 @@ fn run_test(args: &CoccinelleForRust) {
     // // });
 }
 
-fn run_test_tmp(args: &CoccinelleForRust) {
+fn run(args: &CoccinelleForRust) {
     let contents = fs::read_to_string(&args.coccifile).unwrap();
     let rules = processcocci(&contents).0;
     let snode = if rules.len() > 1 { todo!() } else { getstmtlist(&rules[0].patch.minus) };
@@ -703,7 +702,7 @@ fn run_test_tmp(args: &CoccinelleForRust) {
     let rnodes = processrs(&rfile).unwrap();
 
     //Notice how we use vec![x] to wrap each function
-    let mut rnodes = rnodes.into_iter().map(|x| vec![x]).collect_vec();
+    let mut rnodes = rnodes.0.into_iter().map(|x| vec![x]).collect_vec();
 
     // let rnodes = rnodes.into_iter()
     let flows = asts_to_flow(&rnodes);
@@ -711,31 +710,17 @@ fn run_test_tmp(args: &CoccinelleForRust) {
     let a = make_ctl_simple(snode, false);
 
     if args.show_cfg {
-        show_cfg(&flows[0]);
+        coccinelleforrust::commons::util::show_cfg(&flows[0]);
     }
 
     if args.show_ctl {
         eprintln!("CTL - {}", a);
     }
 
-    // let flow = &flows[0];
-    // flow.nodes().iter().for_each(|x| {
-    //     if !flow.node(*x).data().is_dummy() {
-    //         eprint!(
-    //             "{}:{:?} - {:?}",
-    //             x.0,
-    //             flow.node(*x).data().rnode().kind(),
-    //             flow.node(*x).data().rnode().getstring()
-    //         );
-    //     } else {
-    //         eprint!("{} - DummyNode", x.0);
-    //     }
-    //     eprintln!(" : succs - {:?} | preds - {:?}", flow.successors(*x), flow.predecessors(*x));
-    // });
-
     let mut trees = vec![];
     for flow in flows.iter() {
         let res = processctl(&a, flow, &vec![]);
+        eprintln!("Churno - {:?}", res);
         trees.push(res.into_iter().map(|(_, _, tree)| tree).collect_vec());
     }
 
@@ -750,28 +735,12 @@ fn run_test_tmp(args: &CoccinelleForRust) {
     // make_graphviz(&flow, "/home/troy/tmp/tmp.gviz");
 }
 
-fn show_cfg(flow: &Rflow) {
-    make_graphviz(flow, "/tmp/.cfg.dot");
-
-    Command::new("dot")
-        .arg("-Tjpg")
-        .arg("-o")
-        .arg("/tmp/cfg.jpg")
-        .arg("/tmp/.cfg.dot")
-        .status()
-        .expect("Could not run dot");
-
-    Command::new("xdg-open").arg("/tmp/cfg.jpg").status().expect("Could not run image-viewer.");
-
-    // let _ = fs::remove_file("/tmp/.cfg.dot");
-}
-
 fn main() {
     let args = CoccinelleForRust::parse();
     init_logger(&args);
 
     if args.dots.is_some() {
-        run_test_tmp(&args);
+        run(&args);
         eprintln!("Hell");
         exit(1);
     }

@@ -177,10 +177,11 @@ impl Display for Predicate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Predicate::Match(node, modif, pm) => {
+                let m = "";
                 if *pm {
-                    write!(f, "{}(M) {}", node.getstring(), modif)
+                    write!(f, "{}(M){} {}", node.getstring(), m, modif)
                 } else {
-                    write!(f, "{} {}", node.getstring(), modif)
+                    write!(f, "{}{} {}", node.getstring(), m, modif)
                 }
             }
             Predicate::Kind(kind, pm) => {
@@ -199,6 +200,13 @@ impl Predicate {
         match self {
             Predicate::Match(_, _, pm) => *pm = true,
             Predicate::Kind(_, pm) => *pm = true,
+        }
+    }
+
+    pub fn set_unmodif(&mut self) {
+        match self {
+            Predicate::Match(_, modif, _) => *modif = Modif::Unmodif,
+            Predicate::Kind(_, _) => {}
         }
     }
 }
@@ -248,14 +256,14 @@ fn labels_for_ctl<'a>() -> fn(
                         // );
                         let env = match_nodes(snode, rnode, &vec![]);
                         if !env.failed {
-                            eprintln!(
-                                "{}:{:?} matches {}:{:?}",
-                                snode.getstring(),
-                                snode.kind(),
-                                rnode.getstring(),
-                                rnode.kind()
-                            );
-                            eprintln!("Mods - {:?}", env.modifiers);
+                            // eprintln!(
+                            //     "{}:{:?} matches {}:{:?}",
+                            //     snode.getstring(),
+                            //     snode.kind(),
+                            //     rnode.getstring(),
+                            //     rnode.kind()
+                            // );
+                            // eprintln!("NI - {:?};Mods - {:?}", *node, env.modifiers);
                             // if snode
                             let mut t = vec![];
                             if modif.ismodif() {

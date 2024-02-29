@@ -1,7 +1,9 @@
 use itertools::Itertools;
+use ra_parser::SyntaxKind;
 
 use crate::commons::ograph_extended::{EdgeType, Graph, NodeData, NodeIndex};
 use crate::parsing_rs::ast_rs::Rnode;
+use std::f32::consts::E;
 use std::fmt::Debug;
 
 // enum Node1<'a> {
@@ -69,10 +71,6 @@ impl<'a> NodeWrap<'a> {
     pub fn rnode(&self) -> &'a Rnode {
         return self.rnode;
     }
-
-    pub fn info(&self) -> NodeInfo {
-        return self.info.clone();
-    }
 }
 
 impl<'a> Debug for NodeWrap<'a> {
@@ -102,24 +100,40 @@ impl NodeInfo {
 }
 
 pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
+    fn rem_attr(children: &[Rnode]) -> (&[Rnode], bool) {
+        if children.is_empty() {
+            (children, false)
+        } else {
+            if children[0].kind() == SyntaxKind::ATTR {
+                return (&children[1..], true);
+            } else {
+                return (children, false);
+            }
+        }
+    }
+
     fn make_graph<'b, 'a: 'b>(
-        mut prev: NodeIndex,
+        prev_inds: &[NodeIndex],
         graph: &'b mut Graph<Node<'a>>,
         rnodes: &'a Vec<Rnode>,
         label: usize,
-    ) -> (Option<NodeIndex>, Vec<NodeIndex>) {
+        splits: &[usize],
+    ) -> (Vec<NodeIndex>, Vec<NodeIndex>) {
+        //One for Default, one for Siblings
         let mut prev_sib: Option<NodeIndex> = None;
         //First one is the index of the last node if children exist
         //Second one is the list of all the nodes with no next node
         //at their own level
-        let mut pinds = vec![];
-
+        let mut psibs = vec![];
+        let mut prev_inds = prev_inds.to_vec();
         let label = label << 1;
         if rnodes.is_empty() {
-            return (None, pinds);
+            return (vec![], psibs);
         }
 
         let mut rnodes = rnodes.iter().peekable();
+        let mut ends = vec![];//has the last nodes which need to be linked to the next ones
+        let mut ctr: usize = 0;
 
         while rnodes.peek().is_some() {
             let rnode = match rnodes.next() {
@@ -129,46 +143,78 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
 
             let node = make_node(label, rnode);
             let ind = graph.add_node(node);
-            graph.add_edge(prev, ind, EdgeType::Default);
-            //creates edge between the current node and the previous node
+            prev_inds.iter().for_each(|pind| {
+                graph.add_edge(*pind, ind, EdgeType::Default);
+            });
 
+            //creates edge between the current node and the previous node
             if let Some(prev_sib) = prev_sib {
                 graph.add_edge(prev_sib, ind, EdgeType::Sibling);
             }
-            pinds.into_iter().for_each(|pind| {
+
+            //creates edges between the current node and all the nodes prior that have no next siblings
+            psibs.into_iter().for_each(|pind| {
                 graph.add_edge(pind, ind, EdgeType::Sibling);
             });
 
-            let (inds, pindst) = make_graph(ind, graph, &rnode.children, label);
-            pinds = pindst;
+            use ra_parser::SyntaxKind as Tag;
+            let (inds, pindst) = match rnode.kind() {
+                Tag::IF_EXPR => {
+                    let (children, hasattr) = rem_attr(rnode.children.as_slice());
+                    let hasattr: usize = if hasattr { 1 } else { 0 };
+                    match children {
+                        [ifkw, cond, then] if ifkw.kind() == Tag::IF_KW => {
+                            make_graph(&[ind], graph, &rnode.children, label, &[])
+                        }
+                        [ifkw, cond, then, elsekw, elsebr] if ifkw.kind() == Tag::IF_KW => {
+                            make_graph(&[ind], graph, &rnode.children, label, &[hasattr + 2])
+                        }
+                        _ => {
+                            panic!("Pattern does not exist")
+                        }
+                    }
+                }
+                _ => make_graph(&[ind], graph, &rnode.children, label, &[]),
+            };
+            psibs = pindst;
+
+            if splits.contains(&ctr) {
+                if inds.is_empty() {
+                    ends.push(ind);
+                } else {
+                    ends.extend(inds);
+                }
+            } else {
+                if inds.is_empty() {
+                    prev_inds = vec![ind];
+                } else {
+                    prev_inds = inds;
+                }
+            }
+
+            prev_sib = Some(ind);
 
             if rnodes.peek().is_none() {
-                pinds.push(ind);
+                psibs.push(ind);
             }
 
-            match inds {
-                Some(e) => {
-                    prev = e;
-                }
-                None => {
-                    prev = ind;
-                }
-            }
-            prev_sib = Some(ind);
+            ctr += 1;
         }
 
-        return (Some(prev), pinds);
+        ends.extend(prev_inds);
+        return (ends, psibs);
     }
 
     let mut graph: Graph<Node<'a>> = Graph::new();
     let f = graph.add_node(Node::StartNode);
 
-    let (e, _) = make_graph(f, &mut graph, rnodes, 0);
-    let e = e.unwrap();
+    let (e, _) = make_graph(&[f], &mut graph, rnodes, 0, &[]);
 
     //Make end dummy node loop
     let ind = graph.add_node(Node::EndNode);
-    graph.add_edge(e, ind, EdgeType::Default);
+    e.into_iter().for_each(|e| {
+        graph.add_edge(e, ind, EdgeType::Default);
+    });
     graph.add_edge(ind, ind, EdgeType::Default);
 
     return graph;

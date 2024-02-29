@@ -35,3 +35,6 @@ features = ["proposed"]
 [[bin]]
 name="cfr"
 path="src/bin/main.rs"
+
+[features]
+verbose-ctl-engine=[]

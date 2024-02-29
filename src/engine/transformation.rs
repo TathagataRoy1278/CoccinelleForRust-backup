@@ -10,22 +10,23 @@ use itertools::Itertools;
 use crate::{
     commons::{
         info::ParseError,
-        util::{getstmtlist, workrnode},
-    },
-    debugcocci,
-    engine::cocci_vs_rs::{visitrnode_tmp, MetavarBinding},
-    parsing_cocci::{
+        util::{getstmtlist, show_cfg, workrnode},
+    }, ctl::ctl_ast::{GenericSubst, GenericWitnessTree}, debugcocci, engine::{
+        cocci_vs_rs::{visitrnode_tmp, MetavarBinding, Modifiers},
+        ctl_cocci::{processctl, SubOrMod},
+    }, interface::interface::CoccinelleForRust, parsing_cocci::{
         ast0::{MetaVar, MetavarName, Snode},
         parse_cocci::Rule,
-    },
-    parsing_rs::{
-        ast_rs::{Rnode, Wrap},
-        parse_rs::processrs_old,
-    },
+    }, parsing_rs::{
+        ast_rs::{Rcode, Rnode, Wrap},
+        control_flow::asts_to_flow,
+        parse_rs::{processrs, processrs_old},
+    }
 };
 
 use super::{
     cocci_vs_rs::{Environment, Looper},
+    ctl_cocci::CWitnessTree,
     disjunctions::{getdisjunctions, Disjunction},
 };
 
@@ -70,7 +71,6 @@ fn snodetornode(snodes: Vec<Snode>, env: &Environment) -> Vec<Rnode> {
 }
 
 pub fn transform(node: &mut Rnode, env: &Environment) {
-    eprintln!("env : {:?}", env);
     let transformmods = &mut |x: &mut Rnode| -> bool {
         let mut shouldgodeeper: bool = false;
         let pos = x.getpos();
@@ -159,40 +159,33 @@ pub fn getfiltered(
     return toret;
 }
 
-pub fn transformrnode(rules: &Vec<Rule>, rnode: Rnode) -> Result<Rnode, ParseError> {
-    let mut transformedcode = rnode;
+pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode) -> Result<Rcode, ParseError> {
+    let mut transformed_code = rnodes;
 
     let mut savedbindings: Vec<Vec<MetavarBinding>> = vec![vec![]];
     for rule in rules {
         debugcocci!("Rule: {}, freevars: {:?}", rule.name, rule.freevars);
-        let a: Disjunction =
-            getdisjunctions(Disjunction(vec![getstmtlist(&rule.patch.minus).clone().children]));
         debugcocci!("filtered bindings : {:?}", getfiltered(&rule.freevars, &savedbindings));
-        let expandedbindings = getexpandedbindings(getfiltered(&rule.freevars, &savedbindings));
-        debugcocci!("Expanded bindings: {:?}", expandedbindings);
-        let mut tmpbindings: Vec<Vec<MetavarBinding>> = vec![]; //this captures the bindings collected in current rule applciations
-                                                                //let mut usedbindings = HashSet::new(); //this makes sure the same binding is not repeated
-        for gbindings in expandedbindings {
-            debugcocci!("For rule {}, inherited: {:#?}", rule.name, gbindings);
-            let looper = Looper::new(tokenf);
-            let envs = visitrnode_tmp(&a.0, &transformedcode, &|k, l| {
-                looper.handledisjunctions(k, l, gbindings.iter().collect_vec())
-            });
+        // debugcocci!("Expanded bindings: {:?}", expandedbindings);
+        let mut rnodes = transformed_code.0.into_iter().map(|x| vec![x]).collect_vec();
+        let flows = asts_to_flow(&rnodes);
+        let mut forests = vec![];
+        flows.iter().for_each(|flow| {
+            let triples = processctl(&rule.ctl, &flow, &vec![]);
+            let forest = triples.into_iter().map(|(_, _, tree)| tree).collect_vec();
+            forests.push(forest);
+        });
 
-            for mut env in envs.clone() {
-                transform(&mut transformedcode, &env);
-                env.bindings.retain(|x| x.metavarinfo.rulename == rule.name);
-                tmpbindings.push(env.bindings);
-            }
-        }
-        //patchbindings.extend(tmpbindings);
-        savedbindings.extend(tmpbindings);
-        debugcocci!("usedafter : {:#?}", rule.usedafter);
-        trimpatchbindings(&mut savedbindings, &rule.usedafter);
-        debugcocci!("After trimming {:?}", savedbindings);
+        forests.into_iter().enumerate().for_each(|(i, forest)| {
+            transformrnode(&forest, &mut rnodes[i][0]);
+        });
 
-        let transformedstring = transformedcode.getunformatted();
-        transformedcode = match processrs_old(&transformedstring) {
+        let transformedstring = rnodes.iter().fold(String::new(), |mut acc, rnode| {
+            acc.push_str(&rnode[0].getunformatted());
+            acc
+        });
+
+        transformed_code = match processrs(&transformedstring) {
             Ok(node) => node,
             Err(errors) => {
                 return Err(ParseError::RULEERROR(rule.name.clone(), errors, transformedstring));
@@ -207,17 +200,79 @@ pub fn transformrnode(rules: &Vec<Rule>, rnode: Rnode) -> Result<Rnode, ParseErr
         //updating them in the new code for the minuses to work
         //removes unneeded and duplicate bindings
     }
-    return Ok(transformedcode);
+    return Ok(transformed_code);
 }
 
-pub fn transformfile(rules: &Vec<Rule>, rustcode: String) -> Result<Rnode, ParseError> {
-    let parsedrnode = processrs_old(&rustcode);
-    let transformedcode: Rnode = match parsedrnode {
+pub fn transformfile(args: &CoccinelleForRust, rules: &Vec<Rule>, rustcode: String) -> Result<Rcode, ParseError> {
+    let parsedrnode = processrs(&rustcode);
+    let transformedcode = match parsedrnode {
         Ok(node) => node,
         Err(errors) => {
             return Err(ParseError::TARGETERROR(errors, rustcode));
         }
     };
     //If this passes then The rnode has been parsed successfully
-    return transformrnode(rules, transformedcode);
+
+    if args.show_cfg {
+        let asts = &transformedcode.0.clone().into_iter().map(|x| vec![x]).collect_vec();
+        let flows = asts_to_flow(asts);
+        flows.into_iter().for_each(|flow| {
+            show_cfg(&flow);
+        })
+    }
+
+    return transformrnodes(rules, transformedcode);
+}
+
+fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+    fn aux(wit: &CWitnessTree) -> Vec<Environment> {
+        let mut genvs = vec![];
+        let mut cenv = Environment::new();
+        match wit {
+            GenericWitnessTree::Wit(_state, subs, _, witforest) => {
+                for sub in subs {
+                    match sub {
+                        GenericSubst::Subst(mvar, value) => match value {
+                            SubOrMod::Sub(node) => cenv.addbinding(MetavarBinding {
+                                metavarinfo: mvar.clone(),
+                                rnode: node.clone(),
+                                neg: false,
+                            }),
+
+                            SubOrMod::Mod(_, modif) => {
+                                cenv.modifiers.add_modifs(modif.clone());
+                            }
+                        },
+                        GenericSubst::NegSubst(_, _) => panic!(),
+                    }
+                }
+
+                if witforest.is_empty() {
+                    genvs.push(cenv);
+                } else {
+                    for tree in witforest {
+                        let envs = aux(tree);
+                        //joining the envs
+                        envs.into_iter().for_each(|env| {
+                            let mut cenv = cenv.clone();
+                            cenv.add(env);
+                            genvs.push(cenv);
+                        })
+                    }
+                }
+            }
+            GenericWitnessTree::NegWit(_) => {}
+        }
+        return genvs;
+    }
+
+    for tree in trees {
+        //tree is one of the changes
+        for wit in tree {
+            let envs = aux(wit);
+            envs.into_iter().for_each(|env| {
+                transform(rnode, &env);
+            });
+        }
+    }
 }
