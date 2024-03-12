@@ -3,17 +3,20 @@ use either::Either;
 use itertools::Itertools;
 use ra_hir::known::{new, std, usize};
 use ra_rust_analyzer::cli::flags;
+use rand::random;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::fs::OpenOptions;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Sub;
-use std::{clone, isize, iter, panic};
+use std::{clone, fs, isize, iter, panic};
 use std::{cmp::Ordering, os::linux::raw::stat};
 
 use crate::commons::ograph_extended::NodeIndex;
 use crate::engine::cocci_vs_rs::MetavarBinding;
 use crate::{commons::info::Unknown, commons::util, ctl::ctl_ast, C};
+use std::io::prelude::*;
 
 use super::ctl_ast::{
     GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict,
@@ -25,6 +28,9 @@ static pSATLEBEL_MEMO_OPT: bool = true;
 static pREQUIRED_ENV_OPT: bool = true;
 static pUNCHECKED_OPT: bool = true;
 static pREQUIRED_STATES_OPT: bool = true;
+static ENGINE_DOT_FILE: &'static str = "/tmp/.engine.dot";
+
+static DEBUG_ENGINE: bool = cfg!(feature = "verbose-ctl-engine");
 
 struct FlagCtl {
     pub PARTIAL_MATCH: bool,
@@ -97,7 +103,43 @@ enum WitAnnoTree<A> {
 //     };
 // }
 
-fn annot<A: Graph, B: Subs, C: Pred, D>(l: isize, tl: &TripleList<A, B, C>, dl: Vec<()>) -> () {}
+fn annot<A: Graph, B: Subs, C: Pred, D>(
+    ctl_term: String,
+    res: &TripleList<A, B, C>,
+    dl: Vec<usize>,
+) -> usize {
+    if !DEBUG_ENGINE {
+        return 0;
+    }
+
+    let ctl_term_i = if ctl_term.len() > 20 { &ctl_term[..20] } else { ctl_term.as_str() };
+
+    let mut file = OpenOptions::new().write(true).append(true).open(ENGINE_DOT_FILE).unwrap();
+
+    let mut wr_str: String = String::new();
+
+    // let wits = format!("{:?}\n", res.clone().into_iter().map(|x| x.2).collect_vec());
+    let nodes = res.iter().fold(String::new(), |mut acc, node| {
+        acc.push_str(&format!("{:?}\n", node.0));
+        acc
+    });
+
+    // let nodes = if nodes.len() <= 20 { nodes.as_str() } else { &nodes[..20] };
+
+    let id: usize = random();
+    wr_str.push_str(&format!(
+        "{} [label=\"{}={}\" tooltip=\"{}\" shape=box]\n",
+        id, ctl_term_i, nodes, ctl_term
+    ));
+
+    for child in dl {
+        wr_str.push_str(&format!("{} -> {} [label=\"{}\"]\n", id, child, ""))
+    }
+
+    writeln!(file, "{}", &wr_str).expect("Could not write engine debug file");
+    // eprintln!("{} -> {}", id, ctl_term);
+    return id;
+}
 
 pub(crate) struct CTL_ENGINE<'a, G: Graph, S: Subs, P: Pred> {
     reachable_table: HashMap<(G::Node, Direction), Vec<G::Node>>,
@@ -116,6 +158,14 @@ fn nub<A: Clone + Ord>(v: &Vec<A>) -> Vec<A> {
     let mut v = v.clone();
     v.sort();
     v.into_iter().dedup().collect_vec()
+}
+
+fn nub_by<A: Eq + Clone>(ls: &[A]) -> Vec<A> {
+    match ls {
+        [] => vec![],
+        [x, xs @ ..] if xs.contains(x) => nub_by(xs),
+        [x, xs @ ..] => iter::once(x.clone()).chain(nub_by(xs).into_iter()).collect_vec(),
+    }
 }
 
 fn set_union<A: PartialEq + Clone>(s1: &Vec<A>, s2: &Vec<A>) -> Vec<A> {
@@ -657,8 +707,17 @@ where
         return a;
     }
 
+    fn clean_subst_by(
+        cmp: impl Fn(&Substitution<S::Mvar, S::Value>, &Substitution<S::Mvar, S::Value>) -> Ordering,
+        theta: &SubstitutionList<S>,
+    ) -> SubstitutionList<S> {
+        let mut tmp = nub_by(theta);
+        tmp.sort_by(cmp);
+        tmp
+    }
+
     fn clean_subst(mut theta: &mut SubstitutionList<S>) -> SubstitutionList<S> {
-        theta.sort_by(|s1, s2| {
+        let cmp = |s1: &Substitution<S::Mvar, S::Value>, s2: &Substitution<S::Mvar, S::Value>| {
             let res = s1.mvar().cmp(s2.mvar());
             if res.is_eq() {
                 match (s1, s2) {
@@ -677,9 +736,9 @@ where
             } else {
                 res
             }
-        });
+        };
+        let res = CTL_ENGINE::<G, S, P>::clean_subst_by(cmp, theta);
         fn loop_fn<S: Subs>(theta: &[Substitution<S::Mvar, S::Value>]) -> SubstitutionList<S> {
-            let mut res = vec![];
             match theta {
                 [] => {
                     vec![]
@@ -687,19 +746,18 @@ where
                 [a @ GenericSubst::Subst(m1, v1), _b @ GenericSubst::NegSubst(m2, v2), rest @ ..]
                     if &m1 == &m2 =>
                 {
-                    res.push(a.clone());
-                    res.extend(loop_fn::<S>(rest));
-                    return res;
+                    let rest = iter::once(a.clone()).chain(rest.to_vec().into_iter()).collect_vec();
+                    loop_fn::<S>(&rest)
                 }
-                [a, rest @ ..] => {
-                    res.push(a.clone());
-                    res.extend(loop_fn::<S>(rest));
-                    return res;
+                [x, xs @ ..] => {
+                    let mut tmp = loop_fn::<S>(xs);
+                    tmp.insert(0, x.clone());
+                    tmp
                 }
             }
         }
 
-        return loop_fn::<S>(theta);
+        return loop_fn::<S>(&res);
     }
 
     fn loop_fn_conj(
@@ -757,9 +815,9 @@ where
                             res @ [(nm, y), ys @ ..] => {
                                 if x.mvar() == nm {
                                     let mut tmp = vec![x.clone()];
-                                    tmp.append(&mut y.clone());
+                                    tmp.extend(y.clone());
                                     let mut tmp = vec![(nm.clone(), tmp)];
-                                    tmp.append(&mut ys.to_vec());
+                                    tmp.extend(ys.to_vec());
                                     tmp
                                 } else {
                                     let mut tmp = vec![(x.mvar().clone(), vec![x.clone()])];
@@ -775,16 +833,16 @@ where
                                  theta2: &SubstitutionList<S>|
                  -> Result<SubstitutionList<S>, &'static str> {
                     let mut is_error = false;
-                    let res = theta1.into_iter().fold(vec![], |acc, sub1| {
+                    let res = theta1.into_iter().fold(vec![], |rest, sub1| {
                         if is_error {
                             return vec![];
                         }
-                        theta2.iter().fold(acc, |rest, sub2| {
+                        theta2.iter().fold(rest, |rest, sub2| {
                             if is_error {
                                 return vec![];
                             }
                             match Self::merge_sub(sub1.clone(), sub2.clone()) {
-                                Some(subs) => [&rest[..], &subs[..]].concat(),
+                                Some(subs) => [&subs[..], &rest[..]].concat(),
                                 None => {
                                     is_error = true;
                                     vec![]
@@ -837,7 +895,6 @@ where
         trips2: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         if pNEW_INFO_OPT {
-            let mut something_dropped = false;
             if trips1 == trips2 {
                 // something_dropped = true;
                 trips1.clone()
@@ -1544,7 +1601,7 @@ where
         required: &Vec<Vec<SubstitutionList<S>>>,
         p: &P::ty,
     ) -> TripleList<G, S, P> {
-        let triples = if !pSATLEBEL_MEMO_OPT {
+        let triples = if pSATLEBEL_MEMO_OPT {
             let states_subs = self.memo_label.get(p);
             if states_subs.is_some() {
                 let states_subs = states_subs.unwrap();
@@ -1561,7 +1618,7 @@ where
             Self::setify(&label(self.cfg, p))
         };
         let ntriples = normalize(triples);
-        if !pREQUIRED_ENV_OPT {
+        if pREQUIRED_ENV_OPT {
             ntriples.iter().fold(vec![], |rest, t @ (s, th, _)| {
                 if required
                     .iter()
@@ -1718,7 +1775,7 @@ where
         required: &Vec<Vec<SubstitutionList<S>>>,
         required_states: &Option<Vec<G::Node>>,
         annot: fn(
-            isize,
+            String,
             // &GenericCtl<P::ty, S::Mvar, Vec<string>>,
             &TripleList<G, S, P>,
             Vec<D>,
@@ -1731,7 +1788,6 @@ where
     ) -> (D, TripleList<G, S, P>) {
         let states = &m.3;
         let label = m.1;
-
         macro_rules! satv {
             ($unchecked:expr, $required:expr, $required_states:expr, $phi:expr, $env:expr) => {{
                 // eprint!("{} - > ", phi);
@@ -1776,23 +1832,19 @@ where
         //     )
         // };
 
-        let anno = |_ctl_term: String,
+        let anno = |ctl_term: String,
                     res: Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>,
                     children| {
-            // let r = res.iter().clone().collect_vec();
-            // eprint!(
-            //     "{} -> {:?}. Wits - ",
-            //     _ctl_term,
-            //     res.clone().into_iter().map(|x| x.0).collect_vec()
-            // );
-            // eprintln!(
-            //     "{:?}\n",
-            //     res.clone()
-            //         .into_iter()
-            //         .map(|x| x.2.iter().map(|y| (x.0.clone(), y.subs())).collect_vec())
-            //         .collect_vec()
-            // );
-            (annot(lvl, &res, children), res)
+            if DEBUG_ENGINE {
+                eprint!(
+                    "{} -> \x1b[93m{:?}\x1b[0m. Wits - ",
+                    ctl_term,
+                    res.clone().into_iter().map(|x| x.0).collect_vec()
+                );
+                eprintln!("{:?}\n", res.clone().into_iter().map(|x| x).collect_vec());
+            }
+
+            (annot(ctl_term, &res, children), res)
         };
 
         if lvl > maxlvl && maxlvl > -1 {
@@ -1816,7 +1868,7 @@ where
                     let new_required = self.drop_required(v, required);
                     let (child, res) = satv!(unchecked, &new_required, required_states, phi, env);
                     anno(
-                        format!("Exists({}, {})", v, phi),
+                        format!("Ex {} ({})", v, phi),
                         Self::triples_witness(self, &v, unchecked, !keep, &res),
                         vec![child],
                     )
@@ -2204,6 +2256,12 @@ where
             self.ctl_flags.LOOP_IN_SRC_MODE = true;
         }
         // let m = (x, label, *preproc, states.sort());
+        fs::write(ENGINE_DOT_FILE, "").expect("Cannot write engine debug file");
+        let mut file = OpenOptions::new().write(true).append(true).open(ENGINE_DOT_FILE).unwrap();
+
+        if DEBUG_ENGINE {
+            writeln!(file, "digraph L {{\n").expect("Could not write to engine debug file");
+        }
 
         let res = self.sat_verbose_loop(
             false,
@@ -2216,6 +2274,10 @@ where
             phi,
             &vec![],
         );
+
+        if DEBUG_ENGINE {
+            writeln!(file, "}}").expect("Could not write to engine debug file");
+        }
 
         return res.1;
         // println!("{:?}");

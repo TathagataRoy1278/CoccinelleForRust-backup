@@ -501,8 +501,6 @@ pub fn is_punc(s: &str) -> bool {
 pub fn get_rcode(rnodes: &Rcode) -> String {
     rnodes.0.iter().fold(String::new(), |mut acc, rnode| {
         acc.push_str(&rnode.getstring());
-        acc.push('\n');
-        acc.push('\n');
         acc
     })
 }

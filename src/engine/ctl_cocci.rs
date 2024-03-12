@@ -41,7 +41,7 @@ impl Subs for Substitution {
     type Mvar = MetavarName;
 
     fn eq_val(a: &Self::Value, b: &Self::Value) -> bool {
-        //shouldnt be required
+        //shouldnt be required because Value implements equal
         todo!()
     }
 
@@ -52,8 +52,19 @@ impl Subs for Substitution {
 
 type SubstitutionList = crate::ctl::ctl_engine::SubstitutionList<Substitution>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Node(NodeIndex, EdgeType);
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.1 {
+            EdgeType::Default => write!(f, "{:?}D", self.0),
+            EdgeType::NextSibling => write!(f, "{:?}NS", self.0),
+            EdgeType::PrevSibling => write!(f, "{:?}PS", self.0),
+            EdgeType::Sibling => write!(f, "{:?}S", self.0),
+        }
+    }
+}
 
 impl PartialEq for Node {
     fn eq(&self, other: &Self) -> bool {
@@ -248,12 +259,6 @@ fn labels_for_ctl<'a>() -> fn(
                         prev
                     } else {
                         let rnode = flow.node(*node).data().rnode();
-                        // eprintln!(
-                        //     "Flight risk = {} {:?} {}",
-                        //     snode.getstring(),
-                        //     snode.kind(),
-                        //     snode.wrapper.metavar.ismeta()
-                        // );
                         let env = match_nodes(snode, rnode, &vec![]);
                         if !env.failed {
                             // eprintln!(
@@ -272,13 +277,14 @@ fn labels_for_ctl<'a>() -> fn(
                                     SubOrMod::Mod(snode.clone(), env.modifiers),
                                 ));
                             }
+                            let bindings_exist = !env.bindings.is_empty();
                             t.extend(
                                 env.bindings.into_iter().map(|s| create_subs(s)).collect_vec(),
                             );
 
                             // let tet = if *pim { EdgeType::Sibling } else { EdgeType::Sibling };
 
-                            let et = match (!t.is_empty(), pim) {
+                            let et = match (bindings_exist, pim) {
                                 // !t.isempty() is true if it is a metavar
                                 (true, false) => EdgeType::NextSibling,
                                 (false, false) => EdgeType::Default,

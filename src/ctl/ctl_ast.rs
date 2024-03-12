@@ -152,7 +152,7 @@ impl<Pred: Display, Mvar: Display, Anno> Display for GenericCtl<Pred, Mvar, Anno
                     .and(c2.fmt(f))
                     .and(write!(f, "]")),
                 GenericCtl::EF(_, ctl) => write!(f, "AF ").and(ctl.fmt(f)),
-                GenericCtl::EX(_, ctl) => write!(f, "AF ").and(ctl.fmt(f)),
+                GenericCtl::EX(_, ctl) => write!(f, "EX ").and(ctl.fmt(f)),
                 GenericCtl::EG(_, ctl) => write!(f, "EG ").and(ctl.fmt(f)),
                 GenericCtl::EU(_, c1, c2) => write!(f, "E[ ")
                     .and(c1.fmt(f))
@@ -281,7 +281,7 @@ impl<G: Eq + Clone + Debug, S: Eq + Clone + Ord + Debug, P: Eq + Clone> Debug
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Wit(arg0, arg1, arg2, arg3) => {
-                write!(f, "({:?}, {:?}, {{{:?}}})", arg0, arg1, arg3)
+                write!(f, "{:?}, {:?}, {{{:?}}}", arg0, arg1, arg3)
             }
             Self::NegWit(arg0) => write!(f, "NOT({:?})", arg0),
         }

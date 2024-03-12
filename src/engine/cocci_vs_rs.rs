@@ -43,10 +43,23 @@ impl<'a> MetavarBinding {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Modifiers {
     pub minuses: Vec<(usize, usize)>,           //start, end
     pub pluses: Vec<(usize, bool, Vec<Snode>)>, //pos, isbefore?, actual plusses
+}
+
+impl std::fmt::Debug for Modifiers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.minuses.len() != 0 {
+            let _ = write!(f, "-{:?} ", self.minuses);
+        }
+
+        if self.pluses.len() != 0 {
+            let _ = write!(f, "+{:?} ", self.pluses);
+        }
+        write!(f, "")
+    }
 }
 
 impl Modifiers {

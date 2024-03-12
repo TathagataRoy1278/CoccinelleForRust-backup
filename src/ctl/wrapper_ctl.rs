@@ -55,7 +55,6 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
 
     fn handle_dots(dots: &Snode, attach_end: Option<Box<CTL>>, pim: bool) -> Box<CTL> {
         let mut a1 = aux(&dots.children[0], None, false);
-        let a2 = a1.clone();
         let mut b1 = aux(&dots.children[1], None, false);
         let b2 = aux(&dots.children[1], attach_end, false);
 
@@ -79,38 +78,38 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
         aux(&dots.children[0], Some(Box::new(tmp2)), pim)
     }
 
-    fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
-        fn set_pm_true(ctl: &mut Box<CTL>) {
-            match ctl.as_mut() {
-                GenericCtl::False => {}
-                GenericCtl::True => {}
-                GenericCtl::Pred(p) => p.set_pm_true(),
-                GenericCtl::Not(ctl) => set_pm_true(ctl),
-                GenericCtl::Exists(_, _, ctl) => set_pm_true(ctl),
-                GenericCtl::And(_, ctl, _) => set_pm_true(ctl),
-                GenericCtl::AndAny(_, _, ctl, _) => set_pm_true(ctl),
-                GenericCtl::HackForStmt(_, _, _, _) => todo!(),
-                GenericCtl::Or(ctl, _) => set_pm_true(ctl),
-                GenericCtl::Implies(ctl, _) => set_pm_true(ctl),
-                GenericCtl::AF(_, _, ctl) => set_pm_true(ctl),
-                GenericCtl::AX(_, _, ctl) => set_pm_true(ctl),
-                GenericCtl::AG(_, _, ctl) => set_pm_true(ctl),
-                GenericCtl::AW(_, _, ctl, _) => set_pm_true(ctl),
-                GenericCtl::AU(_, _, ctl, _) => set_pm_true(ctl),
-                GenericCtl::EF(_, ctl) => set_pm_true(ctl),
-                GenericCtl::EX(_, ctl) => set_pm_true(ctl),
-                GenericCtl::EG(_, ctl) => set_pm_true(ctl),
-                GenericCtl::EU(_, ctl, _) => set_pm_true(ctl),
-                GenericCtl::Let(_, _, _) => todo!(),
-                GenericCtl::LetR(_, _, _, _) => todo!(),
-                GenericCtl::Ref(_) => todo!(),
-                GenericCtl::SeqOr(_, _) => todo!(),
-                GenericCtl::Uncheck(_) => todo!(),
-                GenericCtl::InnerAnd(ctl) => set_pm_true(ctl),
-                GenericCtl::XX(_, _) => todo!(),
-            }
+    fn set_pm_true(ctl: &mut Box<CTL>) {
+        match ctl.as_mut() {
+            GenericCtl::False => {}
+            GenericCtl::True => {}
+            GenericCtl::Pred(p) => p.set_pm_true(),
+            GenericCtl::Not(ctl) => set_pm_true(ctl),
+            GenericCtl::Exists(_, _, ctl) => set_pm_true(ctl),
+            GenericCtl::And(_, ctl, _) => set_pm_true(ctl),
+            GenericCtl::AndAny(_, _, ctl, _) => set_pm_true(ctl),
+            GenericCtl::HackForStmt(_, _, _, _) => todo!(),
+            GenericCtl::Or(ctl, _) => set_pm_true(ctl),
+            GenericCtl::Implies(ctl, _) => set_pm_true(ctl),
+            GenericCtl::AF(_, _, ctl) => set_pm_true(ctl),
+            GenericCtl::AX(_, _, ctl) => set_pm_true(ctl),
+            GenericCtl::AG(_, _, ctl) => set_pm_true(ctl),
+            GenericCtl::AW(_, _, ctl, _) => set_pm_true(ctl),
+            GenericCtl::AU(_, _, ctl, _) => set_pm_true(ctl),
+            GenericCtl::EF(_, ctl) => set_pm_true(ctl),
+            GenericCtl::EX(_, ctl) => set_pm_true(ctl),
+            GenericCtl::EG(_, ctl) => set_pm_true(ctl),
+            GenericCtl::EU(_, ctl, _) => set_pm_true(ctl),
+            GenericCtl::Let(_, _, _) => todo!(),
+            GenericCtl::LetR(_, _, _, _) => todo!(),
+            GenericCtl::Ref(_) => todo!(),
+            GenericCtl::SeqOr(_, _) => todo!(),
+            GenericCtl::Uncheck(_) => todo!(),
+            GenericCtl::InnerAnd(ctl) => set_pm_true(ctl),
+            GenericCtl::XX(_, _) => todo!(),
         }
+    }
 
+    fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
         if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
             if !snode.is_dots {
                 let tmpp = if snode.wrapper.is_modded {
@@ -144,7 +143,7 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
                     tmpp
                 };
 
-                if snode.wrapper.metavar.ismeta() {
+                if snode.wrapper.metavar.ismeta() && snode.wrapper.freevars.contains(&snode.wrapper.metavar) {
                     Box::new(CTL::Exists(true, snode.wrapper.metavar.getminfo().0.clone(), nextctl))
                 } else {
                     nextctl

@@ -277,7 +277,7 @@ pub struct MetavarName {
 
 impl MetavarName {
     pub fn create_v() -> MetavarName {
-        MetavarName { rulename: String::from("NONE"), varname: String::from("_v") }
+        MetavarName { rulename: String::from(""), varname: String::from("_v") }
     }
 
     pub fn is_v(&self) -> bool {
@@ -688,7 +688,7 @@ pub struct Wrap {
     pub isdisj: bool,
     pub mcodekind: Mcodekind, //McodeKind contains the plusses if any
     pub is_modded: bool,
-    pub freevars: Vec<MetavarName>
+    pub freevars: Vec<MetaVar>
 }
 
 impl Wrap {
@@ -820,9 +820,8 @@ pub fn parsedisjs<'a>(node: &mut Snode) {
     }
 }
 
-pub fn wrap_root(contents: &str, freevars: Vec<MetavarName>) -> Snode {
+pub fn wrap_root(contents: &str) -> Snode {
     let lindex = LineIndex::new(contents);
-    let mut freevars = freevars;
 
     let parse = SourceFile::parse(contents);
     let errors = parse.errors();
@@ -877,44 +876,5 @@ pub fn wrap_root(contents: &str, freevars: Vec<MetavarName>) -> Snode {
         snode
     };
     let snode = work_node(&lindex, wrap_node, SyntaxElement::Node(root), None);
-
-    fn group_dots(snode: &Snode) -> Snode {
-        if snode.is_dots {
-            panic!("Should not occur");
-        }
-
-        let mut children = vec![];
-        let mut snode = snode.clone();
-
-        let mut iter = snode.children.iter().peekable();
-        loop {
-            if let Some(child) = iter.next() {
-                if let Some(dots) = iter.peek() {
-                    if dots.is_dots {
-                        let _dots = iter.next().unwrap();
-                        let nnode = iter.next().unwrap(); //dots is always followed by another node
-                        let a = group_dots(child);
-                        let b = group_dots(nnode);
-
-                        let mut node = Snode::make_wildcard();
-                        node.children = vec![a, b];
-
-                        children.push(node);
-                    } else {
-                        children.push(group_dots(child));
-                    }
-                } else {
-                    children.push(group_dots(child));
-                }
-            } else {
-                break;
-            }
-        }
-
-        snode.children = children;
-
-        return snode;
-    }
-
-    group_dots(&snode)
+    snode
 }

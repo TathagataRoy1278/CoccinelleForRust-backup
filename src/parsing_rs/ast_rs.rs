@@ -135,7 +135,7 @@ impl Wrap {
     }
 }
 
-#[derive(Eq, Hash, Clone)]
+#[derive(Hash, Clone)]
 pub struct Rnode {
     pub wrapper: Wrap,
     astnode: Option<SyntaxElement>, //Not SyntaxNode because we need to take
@@ -152,9 +152,10 @@ impl Display for Rnode {
 
 impl PartialEq for Rnode {
     fn eq(&self, other: &Self) -> bool {
-        other.equals(other)
+        other.equals(self)
     }
 }
+impl Eq for Rnode {}
 
 impl Rnode {
     pub fn new(

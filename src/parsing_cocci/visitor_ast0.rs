@@ -19,7 +19,7 @@ fn ttree_to_expr_list(tt: String) -> Vec<Snode> {
         tt
     );
 
-    let mut rnode = wrap_root(&wrapped, vec![]);
+    let mut rnode = wrap_root(&wrapped);
     let mut args = rnode.children[0] //fn
         .children[3] //blockexpr
         .children[0] //stmtlist

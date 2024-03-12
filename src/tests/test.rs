@@ -1,7 +1,5 @@
 fn main() {
-    let a: disj![
-        a, b
-    ];
+    bar();
 
-    let a = mac!(1);
+    foo();
 }

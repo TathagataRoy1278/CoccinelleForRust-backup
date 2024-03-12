@@ -93,6 +93,7 @@ pub struct Patch {
 impl Patch {
     fn setmetavars(&mut self, metavars: &Vec<MetaVar>) {
         fn setmetavars_aux(node: &mut Snode, metavars: &Vec<MetaVar>) {
+            let mut freevars: Vec<MetaVar> = metavars.clone();
             let mut work = |node: &mut Snode| {
                 //The if statement below lists the types of metavariables allowed
                 if node.isexpr()
@@ -105,8 +106,16 @@ impl Patch {
                     if let Some(mvar) = metavars.iter().find(|x| x.getname() == stmp) {
                         debugcocci!("MetaVar found - {:?}", mvar);
                         node.wrapper.metavar = mvar.clone();
+
+                        if let Some(ind) = freevars.iter().position(|y| y == mvar) {
+                            node.wrapper.freevars = freevars.clone();
+                            freevars.remove(ind);
+                            return;
+                        }
                     }
                 }
+                
+                node.wrapper.freevars = freevars.clone();
             };
             util::worktree(node, &mut work);
         }
@@ -175,6 +184,10 @@ impl Patch {
 
         worksnode(&mut self.plus, (0, Mcodekind::Context(vec![], vec![])), &mut tagmods);
         worksnode(&mut self.minus, (0, Mcodekind::Context(vec![], vec![])), &mut tagmods);
+    }
+
+    pub fn group_dots(&mut self) {
+        self.minus = group_dots(&self.minus);
     }
 
     //remove let from around the type
@@ -384,7 +397,7 @@ fn getdep(rules: &Vec<Rule>, lino: usize, dep: &mut Snode) -> Dep {
 }
 
 fn get_blxpr(contents: &str) -> Snode {
-    wrap_root(contents, vec![])
+    wrap_root(contents)
         .children
         .swap_remove(0) //Fn
         .children
@@ -445,6 +458,44 @@ fn handlerules(rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, b
     (currrulename, depends, hastype || istype)
 }
 
+fn group_dots(snode: &Snode) -> Snode {
+    if snode.is_dots {
+        panic!("Should not occur");
+    }
+
+    let mut children = vec![];
+    let mut snode = snode.clone();
+
+    let mut iter = snode.children.iter().peekable();
+    loop {
+        if let Some(child) = iter.next() {
+            if let Some(dots) = iter.peek() {
+                if dots.is_dots {
+                    let _dots = iter.next().unwrap();
+                    let nnode = iter.next().unwrap(); //dots is always followed by another node
+                    let a = group_dots(child);
+                    let b = group_dots(nnode);
+
+                    let mut node = Snode::make_wildcard();
+                    node.children = vec![a, b];
+
+                    children.push(node);
+                } else {
+                    children.push(group_dots(child));
+                }
+            } else {
+                children.push(group_dots(child));
+            }
+        } else {
+            break;
+        }
+    }
+
+    snode.children = children;
+
+    return snode;
+}
+
 /// Turns values from handlemods into a patch object
 fn getpatch(
     plusbuf: &str,
@@ -455,13 +506,14 @@ fn getpatch(
 ) -> Patch {
     let plusbuf = format!("{}{}", "\n".repeat(llino), plusbuf);
     let minusbuf = format!("{}{}", "\n".repeat(llino), minusbuf);
-    let mut p = Patch { plus: wrap_root(plusbuf.as_str(), vec![]), minus: wrap_root(minusbuf.as_str(), vec![]) };
+    let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str())};
     p.setmetavars(metavars);
     p.setminus();
     removestmtbraces(&mut p.minus);
     removestmtbraces(&mut p.plus);
     p.striplet(hastype);
     p.tagplus();
+    p.group_dots();
     p
 }
 
