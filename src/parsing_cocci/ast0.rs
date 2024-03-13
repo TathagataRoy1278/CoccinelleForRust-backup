@@ -859,17 +859,12 @@ pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
         // when someone actually makes this mistake and param is not a metavar
         // Have to find a more elegant solution to this
 
-<<<<<<< HEAD
             if error.to_string().contains("missing type for function parameter") {
                 break;
             }
             eprintln!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
             eprintln!("{}", parse.syntax_node().to_string());
             exit(1);
-=======
-        if error.to_string().contains("missing type for function parameter") {
-            break;
->>>>>>> a77f83a (Fixed snode/cocci parser crashing issue)
         }
         println!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
         println!("{}", parse.syntax_node().to_string());
