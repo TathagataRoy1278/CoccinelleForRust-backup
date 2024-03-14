@@ -236,6 +236,8 @@ impl<'a, 'b> Looper {
                 {
                     //this is entered if a metavar has already been bound or is present
                     //in the inherited environment
+                    // binding.rnode.print_tree();
+                    // node2.print_tree();
                     if binding.rnode.equals(node2) {
                         MetavarMatch::Exists
                     } else {
