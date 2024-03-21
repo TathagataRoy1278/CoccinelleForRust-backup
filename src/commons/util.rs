@@ -388,7 +388,7 @@ pub fn get_pluses_front(node: &Snode) -> Vec<Snode> {
 }
 
 pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
-    if node.children.len() == 0 || !node.wrapper.metavar.isnotmeta() {
+    if node.children.len() == 0 || !node.wrapper.metavar.isnotmeta() || node.wrapper.isdisj {
         //attach to a token or a metavar
         //a metavar does not always mean a token like an expr may be
         //a path_expr
@@ -420,7 +420,7 @@ pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
 
 pub fn attach_pluses_back(node: &mut Snode, plus: Vec<Snode>) {
     let len = node.children.len();
-    if len == 0 || !node.wrapper.metavar.isnotmeta() {
+    if len == 0 || !node.wrapper.metavar.isnotmeta() || node.wrapper.isdisj {
         if !plus.is_empty() {
             node.wrapper.is_modded = true;
         }

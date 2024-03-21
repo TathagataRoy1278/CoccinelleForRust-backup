@@ -225,6 +225,37 @@ impl Patch {
         striplet_aux(&mut self.minus);
     }
 
+    // pub fn tag_plus(&mut self) {
+    //     let mut achildren = self.minus.into_preorder().iter();
+    //     let mut bchildren = self.plus.into_preorder().iter();
+    //     let mut a = achildren.next();
+    //     let mut b = bchildren.next();
+    //     let mut pvec = vec![];
+
+    //     loop {
+    //         match (a, b) {
+    //             (Some(ak), Some(bk)) => {
+    //                 match (ak.wrapper.mcodekind, bk.wrapper.mcodekind) {
+    //                     (_, Mcodekind::Plus) => {
+    //                         pvec.push((*bk).clone());
+    //                         b = bchildren.next();
+    //                     }
+    //                     (Mcodekind::Minus(_), _) => {
+    //                         attach_pluses_front(*ak, pvec);
+    //                         pvec = vec![];
+    //                         a = achildren.next();
+    //                     }
+    //                     (Mcodekind::Context(_, _), Mcodekind::Context(_, _)) => {
+    //                         if ak.wrapper.isdisj {
+    //                             ak.wrapper.mcodekind.push_pluses_front(pvec);
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
+
     pub fn tag_plus(&mut self) {
         fn tagplus_aux(node1: &mut Snode, node2: &Snode) {
             //There is no need to propagate pluses
@@ -234,8 +265,8 @@ impl Patch {
             //statement after a minus or context code and not have it
             //in a level same as the statement above it even around braces
             let mut pvec: Vec<Snode> = vec![];
-            let mut achildren = node1.children.iter_mut();
-            let mut bchildren = node2.children.iter();
+            let mut achildren = achildren1.into_iter();
+            let mut bchildren = bchildren1.into_iter();
             let mut a = achildren.next();
             let mut b = bchildren.next();
             loop {
@@ -275,7 +306,6 @@ impl Patch {
                                 attach_pluses_front(ak, pvec);
 
                                 pvec = vec![];
-                                tagplus_aux(ak, bk);
                                 a = achildren.next();
                                 b = bchildren.next();
                             }
@@ -308,25 +338,20 @@ impl Patch {
                     }
                 }
             }
-            if pvec.len() != 0 {
-                //Plus statements exist after
-                //the context and need to be attached to the
-                //closes context above/before
-                let a = node1.children.last_mut();
-                if a.is_none() {
-                    panic!("Plus without context.");
-                }
-                let a = a.unwrap();
-                if a.wrapper.isdisj {
-                    a.wrapper.mcodekind.push_pluses_back(pvec);
-                    //a.wrapper.plusesaft.extend(pvec);
-                } else {
-                    attach_pluses_back(a, pvec);
-                }
-            }
+        return pvec;
         }
 
-        tagplus_aux(&mut self.minus, &mut self.plus);
+        let v1 = self.minus.into_preorder();
+        let v2 = self.plus.into_preorder();
+        // eprintln!("v1 - {:?}\nv2 - {:?}", v1.iter().map(|x| x.getstring()).join(" "), v2.iter().map(|x| x.getstring()).join(" "));
+        let pvec = tagplus_aux(v1, v2);
+
+        if pvec.len() != 0 {
+            //Plus statements exist after
+            //the context and need to be attached to the
+            //closes context above/before
+            attach_pluses_back(&mut self.minus, pvec);
+        }
     }
 
     pub fn getunusedmetavars(&self, mut bindings: Vec<MetaVar>) -> Vec<MetaVar> {
@@ -418,13 +443,13 @@ fn _getdep(_rules: &Vec<Rule>, _lino: usize, _dep: &mut Snode) -> Dep {
     todo!()
 }
 
-// fn get_blxpr(contents: &str) -> Snode {
-//     wrap_root(contents)
-//         .children
-//         .swap_remove(0) //Fn
-//         .children
-//         .swap_remove(4) //BlockExpr
-// }
+fn get_blxpr(contents: &str) -> Snode {
+    wrap_root(contents).unwrap()
+        .children
+        .swap_remove(0) //Fn
+        .children
+        .swap_remove(4) //BlockExpr
+}
 
 // fn get_expr(contents: &str) -> Snode {
 //     //assumes that a

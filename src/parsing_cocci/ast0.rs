@@ -53,6 +53,18 @@ impl<'a> Snode {
     //pub fn new_rloot(wrapper: Wrap, syntax: SyntaxElement, children: Vec<Snode>) -> Snode {
     //    Snode { wrapper: wrapper, astnode: Some(syntax), kind: , children: children }
     //}
+    pub fn into_preorder<'b>(&'b mut self) -> Vec<&'b mut Snode> {
+        fn aux<'c>(snode: &'c mut Snode) -> Vec<&'c mut Snode> {
+            if snode.children.is_empty() || !snode.wrapper.metavar.isnotmeta() {
+                return vec![snode];
+            }
+            else {
+                snode.children.iter_mut().flat_map(|x| aux(x)).collect_vec()
+            }
+        }
+
+        aux(self)
+    }
 
     pub fn make_wildcard() -> Snode {
         Snode {
@@ -911,10 +923,6 @@ pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
 
         snode
     };
-<<<<<<< HEAD
     let snode = work_node(&lindex, wrap_node, SyntaxElement::Node(root), None);
     snode
-=======
-    Ok(work_node(&lindex, wrap_node, SyntaxElement::Node(root), None))
->>>>>>> a77f83a (Fixed snode/cocci parser crashing issue)
 }
