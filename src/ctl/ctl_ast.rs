@@ -1,12 +1,8 @@
 use std::{
     borrow::Borrow,
-    fmt::{write, Debug, Display},
+    fmt::{Debug, Display},
     marker::PhantomData,
-    ops::Sub,
-    rc::Rc,
 };
-
-use super::ctl_engine::{Graph, Pred, Subs, SubstitutionList};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Strict {
@@ -67,7 +63,7 @@ impl<Pred: Display + Clone, Mvar: Clone, Anno: Clone> GenericCtl<Pred, Mvar, Ann
             GenericCtl::True => {}
             GenericCtl::Pred(_) => f(ctl0),
             GenericCtl::Not(ctl) => Self::do_ctl(ctl, f),
-            GenericCtl::Exists(keep, _, ctl) => {
+            GenericCtl::Exists(_keep, _, ctl) => {
                 Self::do_ctl(ctl, f);
             }
             GenericCtl::And(_, ctl, ctl1) => {
@@ -192,10 +188,10 @@ impl<Mvar: Clone + Eq, Val: Clone + Eq> GenericSubst<Mvar, Val> {
 impl<Mvar: Clone + Ord, Val: Clone + Eq> PartialOrd for GenericSubst<Mvar, Val> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
-            (GenericSubst::Subst(mvar1, val1), GenericSubst::Subst(mvar2, val2))
-            | (GenericSubst::Subst(mvar1, val1), GenericSubst::NegSubst(mvar2, val2))
-            | (GenericSubst::NegSubst(mvar1, val1), GenericSubst::Subst(mvar2, val2))
-            | (GenericSubst::NegSubst(mvar1, val1), GenericSubst::NegSubst(mvar2, val2)) => {
+            (GenericSubst::Subst(mvar1, _val1), GenericSubst::Subst(mvar2, _val2))
+            | (GenericSubst::Subst(mvar1, _val1), GenericSubst::NegSubst(mvar2, _val2))
+            | (GenericSubst::NegSubst(mvar1, _val1), GenericSubst::Subst(mvar2, _val2))
+            | (GenericSubst::NegSubst(mvar1, _val1), GenericSubst::NegSubst(mvar2, _val2)) => {
                 mvar1.partial_cmp(mvar2)
             }
         }
@@ -205,10 +201,10 @@ impl<Mvar: Clone + Ord, Val: Clone + Eq> PartialOrd for GenericSubst<Mvar, Val> 
 impl<Mvar: Clone + Ord, Val: Clone + Eq> Ord for GenericSubst<Mvar, Val> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         match (self, other) {
-            (GenericSubst::Subst(mvar1, val1), GenericSubst::Subst(mvar2, val2))
-            | (GenericSubst::Subst(mvar1, val1), GenericSubst::NegSubst(mvar2, val2))
-            | (GenericSubst::NegSubst(mvar1, val1), GenericSubst::Subst(mvar2, val2))
-            | (GenericSubst::NegSubst(mvar1, val1), GenericSubst::NegSubst(mvar2, val2)) => {
+            (GenericSubst::Subst(mvar1, _val1), GenericSubst::Subst(mvar2, _val2))
+            | (GenericSubst::Subst(mvar1, _val1), GenericSubst::NegSubst(mvar2, _val2))
+            | (GenericSubst::NegSubst(mvar1, _val1), GenericSubst::Subst(mvar2, _val2))
+            | (GenericSubst::NegSubst(mvar1, _val1), GenericSubst::NegSubst(mvar2, _val2)) => {
                 mvar1.cmp(mvar2)
             }
         }
@@ -280,7 +276,7 @@ impl<G: Eq + Clone + Debug, S: Eq + Clone + Ord + Debug, P: Eq + Clone> Debug
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Wit(arg0, arg1, arg2, arg3) => {
+            Self::Wit(arg0, arg1, _arg2, arg3) => {
                 write!(f, "{:?}, {:?}, {{{:?}}}", arg0, arg1, arg3)
             }
             Self::NegWit(arg0) => write!(f, "NOT({:?})", arg0),
@@ -333,7 +329,7 @@ impl Display for Modif {
     }
 }
 
-pub type GenericSubstList<Mvar, Value: Clone> = Vec<GenericSubst<Mvar, Value>>;
+pub type GenericSubstList<Mvar, Value> = Vec<GenericSubst<Mvar, Value>>;
 
 impl<Mvar: Clone + Eq, Value: Clone + Eq> GenericSubst<Mvar, Value> {
     pub fn mvar(&self) -> &Mvar {

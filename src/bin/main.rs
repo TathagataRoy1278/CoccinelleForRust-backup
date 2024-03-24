@@ -1,50 +1,31 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use clap::builder::Str;
 use clap::Parser;
-use coccinelleforrust::commons::graphviz::make_graphviz;
 use coccinelleforrust::commons::info::ParseError::*;
 use coccinelleforrust::commons::util::{attach_spaces_right, getstmtlist};
-use coccinelleforrust::ctl::ctl_ast::{
-    Direction::{Backward, Forward},
-    Strict::{NonStrict, Strict},
-};
-use coccinelleforrust::ctl::ctl_ast::{GenericSubst, GenericWitnessTree, Modif};
-use coccinelleforrust::ctl::ctl_engine::{Pred, Subs};
+use coccinelleforrust::ctl::ctl_ast::{GenericSubst, GenericWitnessTree};
 use coccinelleforrust::ctl::wrapper_ctl::make_ctl_simple;
-use coccinelleforrust::engine::cocci_vs_rs::{match_nodes, Environment, Modifiers};
-use coccinelleforrust::engine::ctl_cocci::{self, processctl, CWitnessTree, Predicate, SubOrMod};
-use coccinelleforrust::parsing_cocci::ast0::MetavarName;
+use coccinelleforrust::engine::cocci_vs_rs::Environment;
+use coccinelleforrust::engine::ctl_cocci::{processctl, CWitnessTree, BoundValue};
 use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
 use coccinelleforrust::parsing_rs::ast_rs::Rcode;
-use coccinelleforrust::parsing_rs::control_flow::{ast_to_flow, asts_to_flow, Rflow};
-use coccinelleforrust::parsing_rs::parse_rs::{
-    parse_stmts_snode, processrs, processrs_old, processrswithsemantics,
-};
-use coccinelleforrust::parsing_rs::type_inference::{gettypedb, set_types};
-use coccinelleforrust::{debugcocci, C};
+use coccinelleforrust::parsing_rs::control_flow::asts_to_flow;
+use coccinelleforrust::parsing_rs::parse_rs::
+    processrs
+;
+use coccinelleforrust::debugcocci;
 use coccinelleforrust::{
     engine::cocci_vs_rs::MetavarBinding, engine::transformation,
     interface::interface::CoccinelleForRust, parsing_cocci::ast0::Snode, parsing_rs::ast_rs::Rnode,
 };
 use env_logger::{Builder, Env};
 use itertools::{izip, Itertools};
-use ra_hir::Semantics;
-use ra_vfs::VfsPath;
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::fs::{canonicalize, DirEntry};
 use std::io;
 use std::io::Write;
 use std::process::{Command, Output};
-use std::rc::Rc;
 use std::{fs, path::Path, process::exit};
-use tempfile::NamedTempFile;
-
-type GenericCtl = coccinelleforrust::ctl::ctl_ast::GenericCtl<
-    <Predicate as Pred>::ty,
-    <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar,
-    Vec<String>,
->;
 
 #[allow(dead_code)]
 fn tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
@@ -76,10 +57,10 @@ fn init_logger(args: &CoccinelleForRust) {
 }
 
 pub fn adjustformat(node1: &mut Rnode, node2: &Rnode, mut line: Option<usize>) -> Option<usize> {
-    if line.is_some() {
+    // if line.is_some() {
         // eprintln!("{:?}", line);
-        //eprintln!("{} here", node1.getunformatted());
-    }
+        // eprintln!("{} here", node1.getunformatted());
+    // }
 
     if node1.wrapper.wspaces.0.contains("/*COCCIVAR*/") {
         node1.wrapper.wspaces = node2.wrapper.wspaces.clone();
@@ -92,9 +73,10 @@ pub fn adjustformat(node1: &mut Rnode, node2: &Rnode, mut line: Option<usize>) -
             //eprintln!("{}, {:?}=={:?}", sline, childa.getunformatted(), childb.getunformatted());
             if childa.wrapper.info.eline == sline {
                 childa.wrapper.wspaces = childb.wrapper.wspaces.clone();
-            } else {
-                line = None;
             }
+            // else {
+            //     line = None;
+            // }
         });
         line = adjustformat(childa, &childb, line);
         if line.is_some() {
@@ -137,14 +119,14 @@ fn getformattedfile(
 
     //-let randrustfile = format!("{}/tmp{}.rs", parent.display(), rng.gen::<u32>());
     let dirpath = parent.to_str().expect("Cannot get directory");
-    let mut randfile =
+    let randfile =
         tempfile::Builder::new().tempfile_in(dirpath).expect("Cannot create temporary file.");
     let mut randrustfile = randfile.path().to_str().expect("Cannot get temporary file.");
 
     // In all cases, write the transformed code to a file so we can diff
     //VERY IMPORTANT :-
     //CHECK TO REMOVE THIS FILE FOR ALL ERROR CASES
-    transformedcode.writetotmpnamedfile(&randfile);
+    transformedcode.writetotmpnamedfile(&randrustfile);
     debugcocci!(
         (|| {
             fs::write("/tmp/tmp_CFR_COCCI.rs", transformedcode.getunformatted())
@@ -192,6 +174,9 @@ fn getformattedfile(
                     String::from_utf8(output.stderr).unwrap_or(String::from("NONE"))
                 );
             }
+        } {
+            // let s = fs::read_to_string(&randrustfile);
+            // eprintln!("wjere = {}", s.unwrap());
         }
         //if let Some(fmtconfig_path) = &cfr.rustfmt_config {
         //  fcommand = fcommand.arg("--config-path").arg(fmtconfig_path.as_str());
@@ -201,23 +186,21 @@ fn getformattedfile(
         //  eprintln!("Formatting failed.");
         //}
         let formattednode =
-            match processrs_old(&fs::read_to_string(&randrustfile).expect("Could not read")) {
+            match processrs(&fs::read_to_string(&randrustfile).expect("Could not read")) {
                 Ok(rnode) => rnode,
                 Err(_) => {
                     panic!("Cannot parse temporary file.");
                 }
             };
-
         //let formattednode =
         //  processrs(&fs::read_to_string(&randrustfile).expect("Could not read")).unwrap();
 
         // eprintln!("Formatted - {}", formattednode.getunformatted());
-        transformedcode.0.iter_mut().for_each(|rnode| {
-            adjustformat(rnode, &formattednode, None);
+        transformedcode.0.iter_mut().enumerate().for_each(|(i, rnode)| {
+            adjustformat(rnode, &formattednode.0[i], None);
         });
-        randfile = NamedTempFile::new().expect("Cannot create temporary file.");
         randrustfile = randfile.path().to_str().expect("Cannot get temporary file.");
-        transformedcode.writetotmpnamedfile(&randfile);
+        transformedcode.writetotmpnamedfile(&randrustfile);
     }
 
     let diffed = if !cfr.suppress_diff {
@@ -286,7 +269,7 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
             //rowan `NonNull<rowan::cursor::NodeData>` which cannot be shared between threads safely
             // let files_tmp = do_get_files(&args, &args.targetpath, &rules);
             // eprintln!("{:?}", files_tmp);
-
+            // rules[0].patch.minus.print_tree();
             let rcode = fs::read_to_string(&targetpath)
                 .expect(&format!("{} {}", "Could not read file", targetpath));
             let transformedcode = transformation::transformfile(args, &rules, rcode);
@@ -471,13 +454,13 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                 for sub in subs {
                     match sub {
                         GenericSubst::Subst(mvar, value) => match value {
-                            SubOrMod::Sub(node) => cenv.addbinding(MetavarBinding {
+                            BoundValue::Sub(node) => cenv.addbinding(MetavarBinding {
                                 metavarinfo: mvar.clone(),
                                 rnode: node.clone(),
                                 neg: false,
                             }),
 
-                            SubOrMod::Mod(_, modif) => {
+                            BoundValue::Mod(_, modif) => {
                                 cenv.modifiers.add_modifs(modif.clone());
                             }
                         },
@@ -596,7 +579,7 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
 //     }
 // }
 
-fn run_test(args: &CoccinelleForRust) {
+fn _run_test(_args: &CoccinelleForRust) {
     // let contents = fs::read_to_string(&args.coccifile).unwrap();
     // let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
     // let st = snodes.clone();
@@ -741,7 +724,6 @@ fn main() {
 
     if args.dots.is_some() {
         run(&args);
-        eprintln!("Hell");
         exit(1);
     }
 

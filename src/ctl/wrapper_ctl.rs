@@ -1,20 +1,18 @@
-use std::rc::Rc;
 
 use ra_parser::SyntaxKind;
 
 use crate::{
     ctl::ctl_ast::{Direction, Strict},
-    engine::ctl_cocci::{Predicate, SubOrMod},
+    engine::ctl_cocci::{Predicate, BoundValue},
     parsing_cocci::{
         ast0::{MetavarName, Snode},
         parse_cocci::Patch,
     },
-    parsing_rs::ast_rs::Rnode,
 };
 
 use super::{
     ctl_ast::{GenericCtl, GenericSubst, Modif},
-    ctl_engine::{Graph, Pred, Subs, CTL_ENGINE},
+    ctl_engine::{Pred, Subs},
 };
 
 // pub type WrappedCtl<Pred, Mvar> = GenericCtl<(Pred, Modif<Mvar>), Mvar, usize>;
@@ -34,7 +32,7 @@ pub enum WrappedBinding<Value> {
 
 type CTL = GenericCtl<
     <Predicate as Pred>::ty,
-    <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar,
+    <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
     Vec<String>,
 >;
 
@@ -42,7 +40,7 @@ fn dots_has_mv(dots: &Snode) -> bool {
     dots.children[1].wrapper.metavar.ismeta()
 }
 
-pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
+pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
     fn get_kind_pred(ctl: Box<CTL>, kind: SyntaxKind, prev_is_mvar: bool) -> Box<CTL> {
         let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind, prev_is_mvar)));
         let fctl = CTL::And(
@@ -60,7 +58,7 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
 
         let mut f = |ctl: &mut CTL| match ctl {
             CTL::Pred(p) => p.set_unmodif(),
-            CTL::Exists(keep, _, _) => {}
+            CTL::Exists(_keep, _, _) => {}
             _ => {}
         };
 
@@ -112,6 +110,8 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
     fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
         if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
             if !snode.is_dots {
+
+                //Sets the modif
                 let tmpp = if snode.wrapper.is_modded {
                     Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar)))
                 } else {
@@ -122,6 +122,7 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
                     )))
                 };
 
+                //adds the _v for modifs
                 let tmpp = if snode.wrapper.is_modded {
                     //is minused or has pluses attached to it
                     Box::new(CTL::Exists(true, MetavarName::create_v(), tmpp))
@@ -129,6 +130,7 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
                     tmpp
                 };
 
+                //propagates
                 let nextctl = if let Some(mut attach_end) = attach_end {
                     if snode.wrapper.metavar.ismeta() {
                         set_pm_true(&mut attach_end);
@@ -194,10 +196,10 @@ pub fn make_ctl_simple(mut snode: &Snode, prev_is_mvar: bool) -> CTL {
 }
 
 pub fn make_ctl(
-    patch: &Patch,
+   _patch: &Patch,
 ) -> GenericCtl<
     <Predicate as Pred>::ty,
-    <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar,
+    <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
     Vec<String>,
 > {
     // todo!()

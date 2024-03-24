@@ -83,6 +83,7 @@ pub enum ParseError {
                         //It contains the rulename, error, the unparsed file
 }
 
-pub const WILDCARD: &str = "/*__BLOCK_WILD_CARD__*/";
+pub const WILDCARD_NAME: &str = "COCCI_DOT_DOT_DOTS";
+pub const WILDCARD: &str = "COCCI_DOT_DOT_DOTS![];";
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Unknown;

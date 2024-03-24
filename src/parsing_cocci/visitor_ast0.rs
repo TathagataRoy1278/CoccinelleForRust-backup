@@ -2,7 +2,7 @@
 
 use ra_ide_db::line_index::LineIndex;
 use ra_parser::SyntaxKind;
-use ra_syntax::SyntaxElement;
+use ra_syntax::{SyntaxElement, SyntaxNode};
 use std::vec;
 
 use crate::commons::{info::WILDCARD, util::worksnode};
@@ -47,6 +47,14 @@ fn ttree_to_expr_list(tt: String) -> Vec<Snode> {
     //let exprlist = node.chil;
 }
 
+fn is_dots(node: &SyntaxNode) -> bool {
+    let child = node.first_child().unwrap();
+    if child.kind() == SyntaxKind::MACRO_EXPR {
+        return node.to_string() == WILDCARD;
+    }
+    false
+}
+
 pub fn work_node<'a>(
     lindex: &LineIndex,
     wrap_node: &dyn Fn(
@@ -76,11 +84,11 @@ pub fn work_node<'a>(
                                     Some(String::from(child.to_string().as_bytes()[2] as char));
                                 //in the next iteration the node gets the modkind
                             }
-                            else if child.to_string().eq(WILDCARD) {
-                                let wc = Snode::make_wildcard();
-                                children.push(wc);
-                                modkind = None;
-                            }
+                            // else if child.to_string().eq(WILDCARD) {
+                            //     let wc = Snode::make_wildcard();
+                            //     children.push(wc);
+                            //     modkind = None;
+                            // }
                         }
                         Tag::TOKEN_TREE => {
                             let mut exprlist =
@@ -95,6 +103,11 @@ pub fn work_node<'a>(
                                 })
                             });
                             children.extend(exprlist);
+                        }
+                        Tag::EXPR_STMT if is_dots(child.as_node().unwrap()) => {
+                            let dotn = Snode::make_wildcard();
+                            children.push(dotn);
+                            modkind = None;
                         }
                         // Tag::PATH_EXPR if child.to_string() == WILDCARD => {
                         //     let snode = Snode::make_wildcard();

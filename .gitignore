@@ -10,6 +10,8 @@
 .vscode/
 .idea/
 
+.commit_msg
+
 # Added by cargo
 #
 # already existing elements were commented out

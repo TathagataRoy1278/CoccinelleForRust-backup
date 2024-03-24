@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use std::{fs, process::Command};
+use std::process::Command;
 
 use itertools::Itertools;
 use ra_parser::SyntaxKind;
@@ -8,7 +8,10 @@ use rand::random;
 
 use crate::{
     parsing_cocci::ast0::{Mcodekind, Snode},
-    parsing_rs::{ast_rs::{Rcode, Rnode}, control_flow::Rflow},
+    parsing_rs::{
+        ast_rs::{Rcode, Rnode},
+        control_flow::Rflow,
+    },
 };
 
 use regex::Regex;
@@ -418,7 +421,6 @@ pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
 pub fn attach_pluses_back(node: &mut Snode, plus: Vec<Snode>) {
     let len = node.children.len();
     if len == 0 || !node.wrapper.metavar.isnotmeta() {
-        
         if !plus.is_empty() {
             node.wrapper.is_modded = true;
         }
@@ -504,7 +506,6 @@ pub fn get_rcode(rnodes: &Rcode) -> String {
         acc
     })
 }
-
 
 pub fn show_cfg(flow: &Rflow) {
     let ra: usize = random();

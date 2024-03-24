@@ -8,44 +8,45 @@ use ra_parser::SyntaxKind;
 
 use crate::commons::ograph_extended::EdgeType;
 use crate::commons::ograph_extended::{self, NodeIndex};
-use crate::ctl::ctl_ast::{GenericCtl, GenericSubst, GenericSubstList, Modif};
+use crate::ctl::ctl_ast::{GenericCtl, GenericSubst, Modif};
 use crate::ctl::ctl_engine::{self, Graph, Pred, Subs, TripleList, WitnessTree, CTL_ENGINE};
 use crate::ctl::wrapper_ctl::WrappedBinding;
 use crate::engine::cocci_vs_rs::match_nodes;
 use crate::parsing_cocci::ast0::{MetavarName, Snode};
-use crate::parsing_cocci::parse_cocci::Rule;
-use crate::parsing_rs::control_flow::{NodeWrap, Rflow};
-use crate::{commons::ograph_extended::NodeData, parsing_rs::ast_rs::Rnode};
+use crate::parsing_rs::ast_rs::Rnode;
+use crate::parsing_rs::control_flow::Rflow;
 
-use super::cocci_vs_rs::{Looper, MetavarBinding, Modifiers};
+use super::cocci_vs_rs::{MetavarBinding, Modifiers};
 
 #[derive(Clone, PartialEq, Eq)]
-pub enum SubOrMod {
+pub enum BoundValue {
     Sub(Rc<Rnode>),
     Mod(Snode, Modifiers),
+    Label(usize),
 }
 
-type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, SubOrMod>;
+type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, BoundValue>;
 
-impl Debug for SubOrMod {
+impl Debug for BoundValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Sub(arg0) => write!(f, "{}", arg0),
-            Self::Mod(arg0, arg1) => write!(f, "{:?}", arg1),
+            Self::Mod(_arg0, arg1) => write!(f, "{:?}", arg1),
+            Self::Label(l) => write!(f, "Label({})", l),
         }
     }
 }
 
 impl Subs for Substitution {
-    type Value = SubOrMod;
+    type Value = BoundValue;
     type Mvar = MetavarName;
 
-    fn eq_val(a: &Self::Value, b: &Self::Value) -> bool {
+    fn eq_val(_a: &Self::Value, _b: &Self::Value) -> bool {
         //shouldnt be required because Value implements equal
         todo!()
     }
 
-    fn merge_val(a: &Self::Value, b: &Self::Value) -> Self::Value {
+    fn merge_val(a: &Self::Value, _b: &Self::Value) -> Self::Value {
         a.clone()
     }
 }
@@ -165,7 +166,7 @@ impl<'a> Graph for Rflow<'a> {
         <Rflow as Graph>::successors(cfg, node)
     }
 
-    fn extract_is_loop(cfg: &Self::Cfg, node: &Self::Node) -> bool {
+    fn extract_is_loop(_cfg: &Self::Cfg, _node: &Self::Node) -> bool {
         return false;
         //TODO
     }
@@ -182,6 +183,8 @@ pub enum Predicate {
     //in which case successor is the next
     //sibling
     Kind(SyntaxKind, bool),
+    Paren(MetavarName, bool),
+    Label(MetavarName, bool),
 }
 
 impl Display for Predicate {
@@ -202,6 +205,8 @@ impl Display for Predicate {
                     write!(f, "{:?} ", kind)
                 }
             }
+            Predicate::Paren(mvar, _) => write!(f, "Paren({})", mvar),
+            Predicate::Label(mvar, _) => write!(f, "Label({})", mvar),
         }
     }
 }
@@ -209,8 +214,10 @@ impl Display for Predicate {
 impl Predicate {
     pub fn set_pm_true(&mut self) {
         match self {
-            Predicate::Match(_, _, pm) => *pm = true,
-            Predicate::Kind(_, pm) => *pm = true,
+            Predicate::Match(_, _, pm)
+            | Predicate::Kind(_, pm)
+            | Predicate::Paren(_, pm)
+            | Predicate::Label(_, pm) => *pm = true,
         }
     }
 
@@ -218,6 +225,8 @@ impl Predicate {
         match self {
             Predicate::Match(_, modif, _) => *modif = Modif::Unmodif,
             Predicate::Kind(_, _) => {}
+            Predicate::Paren(_, _) => {}
+            Predicate::Label(_, _) => {}
         }
     }
 }
@@ -232,9 +241,9 @@ impl Pred for Predicate {
 
 //Functions
 fn create_subs(s: MetavarBinding) -> Substitution {
-    return GenericSubst::Subst(s.metavarinfo, SubOrMod::Sub(s.rnode));
+    return GenericSubst::Subst(s.metavarinfo, BoundValue::Sub(s.rnode));
 }
-fn tokenf(a: &Snode, b: &Rnode) -> Vec<MetavarBinding> {
+fn _tokenf(_a: &Snode, _b: &Rnode) -> Vec<MetavarBinding> {
     vec![]
 }
 
@@ -274,7 +283,7 @@ fn labels_for_ctl<'a>() -> fn(
                             if modif.ismodif() {
                                 t.push(Substitution::Subst(
                                     MetavarName::create_v(),
-                                    SubOrMod::Mod(snode.clone(), env.modifiers),
+                                    BoundValue::Mod(snode.clone(), env.modifiers),
                                 ));
                             }
                             let bindings_exist = !env.bindings.is_empty();
@@ -314,6 +323,23 @@ fn labels_for_ctl<'a>() -> fn(
                     }
                 })
             }
+            Predicate::Paren(_mvar, _pim) => {
+                todo!();
+            }
+            Predicate::Label(mvar, pim) => flow.nodes().iter().fold(vec![], |mut prev, node| {
+                if flow.node(*node).data().is_dummy() {
+                    return prev;
+                }
+                
+                let binding = flow.node(*node);
+                let nodew = binding.data();
+                let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
+                let nodei = Node(node.clone(), tet);
+                let label = nodew.label();
+                let subs = GenericSubst::Subst(mvar.clone(), BoundValue::Label(label));
+                prev.push((nodei, vec![subs], vec![]));
+                prev
+            }),
         }
     }
 
@@ -375,7 +401,7 @@ fn labels_for_ctl<'a>() -> fn(
 //
 // }
 
-type WB<Val> = WrappedBinding<Val>;
+type _WB<Val> = WrappedBinding<Val>;
 
 // fn wrap_label(oldlabelfn: impl Fn(<Predicate as Pred>::ty) -> Vec<(usize, SubstitutionList)>) {
 //     fn newlabelfn(p: <Predicate as Pred>::ty) {
@@ -437,7 +463,7 @@ type WB<Val> = WrappedBinding<Val>;
 
 pub fn model_for_ctl<'a>(
     flow: &'a Rflow<'a>,
-    bindings: &'a Vec<MetavarBinding>,
+    _bindings: &'a Vec<MetavarBinding>,
 ) -> (
     &'a <Rflow<'a> as Graph>::Cfg,
     fn(
@@ -458,7 +484,7 @@ pub fn model_for_ctl<'a>(
 pub fn processctl<'a>(
     ctl: &GenericCtl<
         <Predicate as Pred>::ty,
-        <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar,
+        <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
         Vec<String>,
     >,
     flow: &'a Rflow<'a>,

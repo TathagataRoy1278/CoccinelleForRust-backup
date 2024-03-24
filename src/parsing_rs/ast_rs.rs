@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 use std::fmt::{Debug, Display};
+use std::fs;
 use std::hash::{Hash, Hasher};
 
 use itertools::izip;
@@ -25,17 +26,13 @@ impl Rcode {
     pub fn getunformatted(&self) -> String {
         self.0.iter().fold(String::new(), |mut acc, rnode| {
             acc.push_str(&rnode.getunformatted());
-            acc.push('\n');
-            acc.push('\n');
             acc
         })
     }
 
-    pub fn writetotmpnamedfile(&self, randfile: &NamedTempFile) {
+    pub fn writetotmpnamedfile(&self, randfile: &str) {
         let data = self.getstring();
-        randfile
-            .as_file()
-            .write_all(data.as_bytes())
+        fs::write(randfile, data.as_bytes())
             .expect("The project directory must be writable by cfr");
         //write!(randfile, "{}", &data).expect("The project directory must be writable by cfr.");
     }
@@ -198,10 +195,12 @@ impl Rnode {
     }
 
     pub fn getstring(&self) -> String {
+        // eprintln!("{:?} {:?}\n", self.kind(), self.wrapper.plussed);
         let mut data = String::new();
 
         //pluses before current node
         for plusbef in &self.wrapper.plussed.0 {
+            eprintln!("high int===================================================o the sky");
             let mut dat = plusbef.getstring();
             dat = remexspaces(dat);
             data.push_str(&dat);
@@ -233,6 +232,8 @@ impl Rnode {
 
         //plusses after current node
         for plusaft in &self.wrapper.plussed.1 {
+            eprintln!("high into the sky");
+
             let mut dat = plusaft.getstring();
             dat = remexspaces(dat);
             data.push_str(&dat);

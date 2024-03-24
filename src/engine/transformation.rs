@@ -10,13 +10,13 @@ use itertools::Itertools;
 use crate::{
     commons::{
         info::ParseError,
-        util::{getstmtlist, show_cfg, workrnode},
+        util::{show_cfg, workrnode},
     },
     ctl::ctl_ast::{GenericSubst, GenericWitnessTree},
     debugcocci,
     engine::{
-        cocci_vs_rs::{visitrnode_tmp, MetavarBinding, Modifiers},
-        ctl_cocci::{processctl, SubOrMod},
+        cocci_vs_rs::MetavarBinding,
+        ctl_cocci::{processctl, BoundValue},
     },
     interface::interface::CoccinelleForRust,
     parsing_cocci::{
@@ -26,17 +26,16 @@ use crate::{
     parsing_rs::{
         ast_rs::{Rcode, Rnode, Wrap},
         control_flow::asts_to_flow,
-        parse_rs::{processrs, processrs_old},
+        parse_rs::processrs,
     },
 };
 
 use super::{
-    cocci_vs_rs::{Environment, Looper},
+    cocci_vs_rs::Environment,
     ctl_cocci::CWitnessTree,
-    disjunctions::{getdisjunctions, Disjunction},
 };
 
-fn tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
+fn _tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
     vec![]
 }
 
@@ -95,14 +94,14 @@ pub fn transform(node: &mut Rnode, env: &Environment) {
             }
         }
         for (pluspos, isbef, pluses) in env.modifiers.pluses.clone() {
-            //eprintln!("{:?}:{:?}, {:?}", x.getunformatted(), x.kind(), (pluspos, isbef, pos));
+            // eprintln!("Pluses - {:?} {:?} {:?}", pluspos, isbef, pluses);
             if pos.0 == pluspos && x.children.len() == 0 && isbef {
                 x.wrapper.plussed.0 = snodetornode(pluses, env);
-                //eprintln!("TESTIG bef {}", x.totoken());
-                //eprintln!("======================== {:?}", x);
+                // eprintln!("TESTIG bef {}", x.totoken());
+                // eprintln!("======================== {:?}", x);
             } else if pos.1 == pluspos && x.children.len() == 0 && !isbef {
                 x.wrapper.plussed.1 = snodetornode(pluses, env);
-                //println!("TESTIG aft {}", x.totoken());
+                // println!("TESTIG aft {}", x.totoken());
             } else if pluspos >= pos.0 && pluspos <= pos.1 {
                 shouldgodeeper = true;
             }
@@ -112,7 +111,7 @@ pub fn transform(node: &mut Rnode, env: &Environment) {
     workrnode(node, transformmods);
 }
 
-fn trimpatchbindings(
+fn _trimpatchbindings(
     patchbindings: &mut Vec<Vec<MetavarBinding>>,
     usedafter: &HashSet<MetavarName>,
 ) {
@@ -168,7 +167,7 @@ pub fn getfiltered(
 pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode) -> Result<Rcode, ParseError> {
     let mut transformed_code = rnodes;
 
-    let mut savedbindings: Vec<Vec<MetavarBinding>> = vec![vec![]];
+    let savedbindings: Vec<Vec<MetavarBinding>> = vec![vec![]];
     for rule in rules {
         debugcocci!("Rule: {}, freevars: {:?}", rule.name, rule.freevars);
         debugcocci!("filtered bindings : {:?}", getfiltered(&rule.freevars, &savedbindings));
@@ -295,13 +294,13 @@ pub fn transformfile(
 //     }
 // }
 
-fn display(pad: String, wit: CWitnessTree) {
+fn _display(pad: String, wit: CWitnessTree) {
     match wit {
         GenericWitnessTree::Wit(state, subs, _, witforest) => {
             eprintln!("{}{:?}", pad, state);
             eprintln!("{}{:?}", pad, subs);
             for wit in witforest {
-                display(format!("{}    ", pad), wit);
+                _display(format!("{}    ", pad), wit);
             }
         }
         GenericWitnessTree::NegWit(_) => todo!(),
@@ -320,7 +319,7 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                 for sub in subs {
                     match sub {
                         GenericSubst::Subst(mvar, value) => match value {
-                            SubOrMod::Sub(node) => {
+                            BoundValue::Sub(node) => {
                                 flag = Some(true);
                                 let mut cv = envs.clone();
                                 cv.iter_mut().for_each(|cv| {
@@ -333,7 +332,7 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                 genvs.extend(cv);
                             }
 
-                            SubOrMod::Mod(_, modif) => {
+                            BoundValue::Mod(_, modif) => {
                                 flag = Some(false);
                                 envs.iter_mut().for_each(|env| {
                                     env.modifiers.add_modifs(modif.clone());
@@ -366,9 +365,9 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
 
     for tree in trees {
         //tree is one of the changes
-        eprintln!("len -= {}", trees.len());
+        // eprintln!("len -= {}", trees.len());
         for wit in tree {
-            display(String::from("   "), wit.clone());
+            // display(String::from("   "), wit.clone());
             let envs = aux(wit, vec![Environment::new()]);
             envs.into_iter().for_each(|env| {
                 transform(rnode, &env);

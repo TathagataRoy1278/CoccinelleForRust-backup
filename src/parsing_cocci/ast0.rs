@@ -60,7 +60,7 @@ impl<'a> Snode {
             wrapper: Wrap::make_dummy(),
             is_dots: true,
             asttoken: None,
-            kind: SyntaxKind::COMMENT, //No meaning
+            kind: SyntaxKind::EXPR_STMT, //No meaning
             children: vec![],
         }
     }
@@ -266,6 +266,15 @@ impl<'a> Snode {
         collecttree(self, &mut f);
 
         constants.into_iter().collect_vec()
+    }
+
+    pub fn get_pluses(&self) -> Pluses {
+        match &self.wrapper.mcodekind {
+            Mcodekind::Minus(pluses) => (pluses.clone(), vec![]),
+            Mcodekind::Plus => (vec![], vec![]),
+            Mcodekind::Context(p1, p2) => (p1.clone(), p2.clone()),
+            Mcodekind::Star => todo!(),
+        }
     }
 }
 
@@ -867,12 +876,15 @@ pub fn wrap_root(contents: &str) -> Snode {
             children: children,
         };
         parsedisjs(&mut snode);
-        if snode.kind() == SyntaxKind::EXPR_STMT && snode.children.len() == 1 {
-            // this means there is an expression statement without a ; at the ens
-            //the reason these are removed because rust-analyzer seems to alter between
-            //assigning ExprStmt and IfExprs(maybe others too)
-            return snode.children.into_iter().next().unwrap();
-        }
+
+        // DEPRECATED
+        // if snode.kind() == SyntaxKind::EXPR_STMT && snode.children.len() == 1 {
+        //     // this means there is an expression statement without a ; at the ens
+        //     //the reason these are removed because rust-analyzer seems to alter between
+        //     //assigning ExprStmt and IfExprs(maybe others too)
+        //     return snode.children.into_iter().next().unwrap();
+        // }
+
         snode
     };
     let snode = work_node(&lindex, wrap_node, SyntaxElement::Node(root), None);

@@ -1,9 +1,8 @@
 use itertools::Itertools;
 use ra_parser::SyntaxKind;
 
-use crate::commons::ograph_extended::{EdgeType, Graph, NodeData, NodeIndex};
+use crate::commons::ograph_extended::{EdgeType, Graph, NodeIndex};
 use crate::parsing_rs::ast_rs::Rnode;
-use std::f32::consts::E;
 use std::fmt::Debug;
 
 // enum Node1<'a> {
@@ -40,6 +39,14 @@ impl<'a> Node<'a> {
         }
     }
 
+    pub fn label(&self) -> usize {
+        match self {
+            Node::StartNode => panic!("Shouldnt be called"),
+            Node::RnodeW(nodew) => return nodew.info.labels,
+            Node::EndNode => panic!("Shouldnt be called"),
+        }
+    }
+
     pub fn is_dummy(&self) -> bool {
         match self {
             Node::StartNode => true,
@@ -70,6 +77,10 @@ pub struct NodeWrap<'a> {
 impl<'a> NodeWrap<'a> {
     pub fn rnode(&self) -> &'a Rnode {
         return self.rnode;
+    }
+
+    pub fn label(&self) -> usize {
+        return self.info.labels;
     }
 }
 
@@ -163,10 +174,10 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                     let (children, hasattr) = rem_attr(rnode.children.as_slice());
                     let hasattr: usize = if hasattr { 1 } else { 0 };
                     match children {
-                        [ifkw, cond, then] if ifkw.kind() == Tag::IF_KW => {
+                        [ifkw, _cond,_thenn] if ifkw.kind() == Tag::IF_KW => {
                             make_graph(&[ind], graph, &rnode.children, label, &[])
                         }
-                        [ifkw, cond, then, elsekw, elsebr] if ifkw.kind() == Tag::IF_KW => {
+                        [ifkw, _cond,_thenn, _elsekw, _elsebr] if ifkw.kind() == Tag::IF_KW => {
                             make_graph(&[ind], graph, &rnode.children, label, &[hasattr + 2])
                         }
                         _ => {

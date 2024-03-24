@@ -16,7 +16,7 @@ use std::{collections::HashSet, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
-    commons::{info::WILDCARD, util::{self, attach_pluses_back, attach_pluses_front, collecttree, getstmtlist, removestmtbraces, worksnode}}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl_simple}, debugcocci, engine::ctl_cocci::{Predicate, SubOrMod}, parsing_cocci::ast0::MetavarType, syntaxerror
+    commons::{info::WILDCARD, util::{self, attach_pluses_back, attach_pluses_front, collecttree, getstmtlist, removestmtbraces, worksnode}}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl_simple}, debugcocci, engine::ctl_cocci::{Predicate, BoundValue}, parsing_cocci::ast0::MetavarType, syntaxerror
 };
 use ra_parser::SyntaxKind;
 
@@ -215,7 +215,7 @@ impl Patch {
         striplet_aux(&mut self.minus);
     }
 
-    pub fn tagplus(&mut self) {
+    pub fn tag_plus(&mut self) {
         fn tagplus_aux(node1: &mut Snode, node2: &Snode) {
             //There is no need to propagate pluses
             //because a plus cannot exist without code around it
@@ -233,30 +233,37 @@ impl Patch {
                 match (&mut a, &b) {
                     (Some(ak), Some(bk)) => {
                         match (&ak.wrapper.mcodekind, &bk.wrapper.mcodekind) {
-                            (_, Mcodekind::Plus) => {
-                                pvec.push((*bk).clone());
-                                b = bchildren.next();
-                            }
                             (Mcodekind::Minus(_), _) => {
                                 //minus code
                                 //with any thing other than a plus
                                 // eprintln!("Comes with {:?}", pvec);
-                                attach_pluses_front(ak, pvec);
-                                pvec = vec![];
+                                
+                                // pvec should be empty. because if plus is persent
+                                // before minus the minus is consumed before
+                                // the plus is encountered
+                                assert_eq!(pvec.len(), 0);
+
+                                // attach_pluses_front(ak, pvec);
+                                // pvec = vec![];
                                 a = achildren.next();
+                            }
+                            (_, Mcodekind::Plus) => {
+                                pvec.push((*bk).clone());
+                                b = bchildren.next();
                             }
                             (Mcodekind::Context(_, _), Mcodekind::Context(_, _)) => {
                                 //context code
                                 //with context code
-                                if ak.wrapper.isdisj {
-                                    //DISJUNCTIONS ARE THE ONLY PART
-                                    //WHERE PLUSES ARE ADDED TO A NODE
-                                    //AND NOT A TOKEN
-                                    ak.wrapper.mcodekind.push_pluses_front(pvec);
-                                    //ak.wrapper.plusesbef.extend(pvec);
-                                } else {
-                                    attach_pluses_front(ak, pvec);
-                                }
+                                // if ak.wrapper.isdisj {
+                                //     //DISJUNCTIONS ARE THE ONLY PART
+                                //     //WHERE PLUSES ARE ADDED TO A NODE
+                                //     //AND NOT A TOKEN
+                                //     ak.wrapper.mcodekind.push_pluses_front(pvec);
+                                //     //ak.wrapper.plusesbef.extend(pvec);
+                                // } else {
+
+                                attach_pluses_front(ak, pvec);
+                                
                                 pvec = vec![];
                                 tagplus_aux(ak, bk);
                                 a = achildren.next();
@@ -350,7 +357,7 @@ pub struct Rule {
     pub freevars: Vec<MetaVar>,
     pub usedafter: HashSet<MetavarName>,
     pub hastype: bool,
-    pub ctl: GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, SubOrMod> as Subs>::Mvar, Vec<String>>
+    pub ctl: GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar, Vec<String>>
 }
 
 // Given the depends clause it converts it into a Dep object
@@ -471,10 +478,14 @@ fn group_dots(snode: &Snode) -> Snode {
         if let Some(child) = iter.next() {
             if let Some(dots) = iter.peek() {
                 if dots.is_dots {
+                    let pluses = dots.get_pluses();
                     let _dots = iter.next().unwrap();
-                    let nnode = iter.next().unwrap(); //dots is always followed by another node
-                    let a = group_dots(child);
-                    let b = group_dots(nnode);
+                    let nnode = iter.next().unwrap(); //dots is always followed by another node(as of now)
+                    let mut a = group_dots(child);
+                    let mut b = group_dots(nnode);
+
+                    attach_pluses_back(&mut a, pluses.0);
+                    attach_pluses_front(&mut b, pluses.1);
 
                     let mut node = Snode::make_wildcard();
                     node.children = vec![a, b];
@@ -512,7 +523,7 @@ fn getpatch(
     removestmtbraces(&mut p.minus);
     removestmtbraces(&mut p.plus);
     p.striplet(hastype);
-    p.tagplus();
+    p.tag_plus();
     p.group_dots();
     p
 }

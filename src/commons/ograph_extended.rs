@@ -1,11 +1,10 @@
 use std::{
-    fmt::{self, Debug, Display},
+    fmt::{self, Debug},
     hash::Hash,
 };
 
 use itertools::Itertools;
 
-use crate::parsing_rs::control_flow::Node;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EdgeIndex(usize);
