@@ -1,10 +1,7 @@
 #![allow(dead_code)]
 use super::transformationtest::TransformTest;
 
-static RULETEST: TransformTest = TransformTest {
-    prefix: "./src/tests/ruledependance/"
-};
-
+static RULETEST: TransformTest = TransformTest { prefix: "./src/tests/ruledependance/" };
 
 #[test]
 pub fn test1() {
@@ -30,4 +27,3 @@ pub fn test4() {
 pub fn test5() {
     assert!(RULETEST.testtransformation("test5.cocci", "test5.rs", "expected5.rs"))
 }
-

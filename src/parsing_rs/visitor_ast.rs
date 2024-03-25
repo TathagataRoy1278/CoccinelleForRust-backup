@@ -7,7 +7,7 @@ use std::vec;
 
 use crate::commons::util::{attach_spaces_left, attach_spaces_right, workrnode};
 
-use super::{ast_rs::Rnode, parse_rs::processrs_old};
+use super::{ast_rs::Rnode, parse_rs::processrs};
 type Tag = SyntaxKind;
 
 fn ttree_to_expr_list(tt: String) -> Option<Vec<Rnode>> {
@@ -18,7 +18,7 @@ fn ttree_to_expr_list(tt: String) -> Option<Vec<Rnode>> {
         tt
     );
 
-    let mut rnode = match processrs_old(&wrapped) {
+    let mut rnode = match processrs(&wrapped) {
         Ok(node) => node,
         Err(_) => {
             //In this case the macro is not function like
@@ -29,12 +29,13 @@ fn ttree_to_expr_list(tt: String) -> Option<Vec<Rnode>> {
         }
     };
 
-    let mut args = rnode.children[0] //fn
+    // rnode.0[0].print_tree();
+    // eprintln!("{:?}", rnode.0[0].children);
+    let mut args = rnode.0[0] //fn
         .children[3] //blockexpr
-        .children[0] //stmtlist
-        .children[1] //callexpr
-        .children
-        .remove(1); //arglist
+        .children[1] //stmtlist
+        .children.remove(1) //callexpr
+        ;
 
     //removing sorrounding brackets of fcall
     args.children.remove(0);
@@ -111,7 +112,6 @@ pub fn work_node<'a>(
                                     //injected at rnode.getunformatted() should the whitespaces
                                     // be attached to nodes that come after it
 
-                                    //eprintln!("{} LEFT \"{}\"", newnode.getunformatted(), "/*COCCIVAR*/");
                                     attach_spaces_left(&mut newnode, String::from("/*COCCIVAR*/"));
 
                                     //Takes only spaces coming before COCCIVAR

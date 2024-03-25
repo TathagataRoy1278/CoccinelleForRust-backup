@@ -94,6 +94,10 @@ impl<'a> Snode {
         &self.kind
     }
 
+    pub fn has_kind(&self, kind: &SyntaxKind) -> bool {
+        self.kind.contains(kind)
+    }
+
     pub fn getstring(&self) -> String {
         if self.children.len() == 0 {
             if self.asttoken.is_none() {
@@ -868,11 +872,7 @@ pub fn wrap_root(contents: &str) -> Snode {
         wrapped.setmodkind(modkind.unwrap_or(String::new()));
         let mut kinds = vec![node.kind()];
         let mut children = df(&node);
-        let mut node = if children.len() == 0 {
-            Some(node)
-        } else {
-            None
-        };
+        let mut node = if children.len() == 0 { Some(node) } else { None };
 
         if children.len() == 1 {
             let child = children.remove(0);
@@ -882,7 +882,6 @@ pub fn wrap_root(contents: &str) -> Snode {
             children = child.children;
             //decide what to do with dots
         };
-
 
         let snode = Snode {
             wrapper: wrapped,

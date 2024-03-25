@@ -143,10 +143,9 @@ pub fn processrs_old(_contents: &str) -> Result<Rnode, String> {
 
 pub fn split_into_fns(rnode: Rnode) -> Rcode {
     if rnode.kinds().as_slice() == [SyntaxKind::SOURCE_FILE] {
-        return Rcode(rnode.children)
-    }
-    else {
-        return Rcode(vec![rnode])
+        return Rcode(rnode.children);
+    } else {
+        return Rcode(vec![rnode]);
     }
 }
 

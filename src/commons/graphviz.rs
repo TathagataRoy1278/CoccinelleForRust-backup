@@ -43,5 +43,4 @@ pub fn make_graphviz(graph: &Rflow, filename: &str) {
     if let Err(_) = fs::write(filename, res) {
         eprintln!("Could not write file");
     }
-
 }

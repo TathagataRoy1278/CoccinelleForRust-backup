@@ -16,7 +16,19 @@ use std::{collections::HashSet, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
-    commons::{info::WILDCARD, util::{self, attach_pluses_back, attach_pluses_front, collecttree, worksnode}}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl_simple}, debugcocci, engine::ctl_cocci::{Predicate, BoundValue}, parsing_cocci::ast0::MetavarType, syntaxerror
+    commons::{
+        info::WILDCARD,
+        util::{self, attach_pluses_back, attach_pluses_front, collecttree, worksnode},
+    },
+    ctl::{
+        ctl_ast::{GenericCtl, GenericSubst},
+        ctl_engine::{Pred, Subs},
+        wrapper_ctl::make_ctl_simple,
+    },
+    debugcocci,
+    engine::ctl_cocci::{BoundValue, Predicate},
+    parsing_cocci::ast0::MetavarType,
+    syntaxerror,
 };
 
 type Name = String;
@@ -112,7 +124,7 @@ impl Patch {
                         }
                     }
                 }
-                
+
                 node.wrapper.freevars = freevars.clone();
             };
             util::worktree(node, &mut work);
@@ -141,7 +153,7 @@ impl Patch {
                                     modifier
                                 );
                             } //debugend
-                            
+
                             node.wrapper.is_modded = true;
                             node.wrapper.mcodekind = modifier.clone();
                             return (lino, modifier);
@@ -235,7 +247,7 @@ impl Patch {
                                 //minus code
                                 //with any thing other than a plus
                                 // eprintln!("Comes with {:?}", pvec);
-                                
+
                                 // pvec should be empty. because if plus is persent
                                 // before minus the minus is consumed before
                                 // the plus is encountered
@@ -261,7 +273,7 @@ impl Patch {
                                 // } else {
 
                                 attach_pluses_front(ak, pvec);
-                                
+
                                 pvec = vec![];
                                 tagplus_aux(ak, bk);
                                 a = achildren.next();
@@ -355,7 +367,11 @@ pub struct Rule {
     pub freevars: Vec<MetaVar>,
     pub usedafter: HashSet<MetavarName>,
     pub hastype: bool,
-    pub ctl: GenericCtl<<Predicate as Pred>::ty, <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar, Vec<String>>
+    pub ctl: GenericCtl<
+        <Predicate as Pred>::ty,
+        <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
+        Vec<String>,
+    >,
 }
 
 // Given the depends clause it converts it into a Dep object
@@ -508,11 +524,9 @@ fn group_dots(snode: &Snode) -> Snode {
 }
 
 fn get_body(snode: &mut Snode) {
-    let mut stmtlist = snode.children.remove(3);
+    let stmtlist = &mut snode.children[3];
     stmtlist.children.remove(0);
-    stmtlist.children.remove(stmtlist.children.len()-1);
-    snode.children = stmtlist;
-    snode.print_tree();
+    stmtlist.children.remove(stmtlist.children.len() - 1);
 }
 
 /// Turns values from handlemods into a patch object
@@ -525,7 +539,7 @@ fn getpatch(
 ) -> Patch {
     let plusbuf = format!("{}{}", "\n".repeat(llino), plusbuf);
     let minusbuf = format!("{}{}", "\n".repeat(llino), minusbuf);
-    let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str())};
+    let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str()) };
     p.setmetavars(metavars);
     p.setminus();
     get_body(&mut p.minus);
@@ -534,6 +548,11 @@ fn getpatch(
     p.tag_plus();
     p.group_dots();
     p
+}
+
+/// Gets the stmtlist for the collapsed tree
+fn get_stmtlist<'a>(snode: &'a Snode) -> &'a Snode {
+    &snode.children[3]
 }
 
 /// Given all the info about name, depends, metavars and modifiers and context
@@ -599,7 +618,7 @@ fn buildrule(
         }
     }
 
-    let ctl = make_ctl_simple(&currpatch.minus, false);
+    let ctl = make_ctl_simple(get_stmtlist(&currpatch.minus), false);
 
     let rule = Rule {
         name: Name::from(currrulename),
@@ -610,7 +629,7 @@ fn buildrule(
         freevars: freevars,
         usedafter: HashSet::new(),
         hastype: istype,
-        ctl: ctl
+        ctl: ctl,
     };
     rule
 }
@@ -626,8 +645,7 @@ pub fn handlemods(block: &Vec<&str>) -> Result<(String, String, bool), (usize, S
     let mut indisj = 0;
 
     for line in block {
-
-        if line.trim()=="..." {
+        if line.trim() == "..." {
             minusbuf.push_str(&format!("{}{}", WILDCARD, '\n'));
             plusbuf.push_str(&format!("{}{}", WILDCARD, '\n'));
             continue;
@@ -668,7 +686,7 @@ pub fn handlemods(block: &Vec<&str>) -> Result<(String, String, bool), (usize, S
                 minusbuf.push_str(holder);
             }
             Some(')') => {
-                if indisj==0 {
+                if indisj == 0 {
                     syntaxerror!(lino, 
                         "Disjunction does not exist. ')' in column 0 is only used for closing disjunctions. \n\
                         Put a space before ')' if not a part of disjunction.")
@@ -726,7 +744,7 @@ pub fn handle_metavar_decl(
         if ty.is_adt() {
             hastypes = true;
         }
-        
+
         for var in tokens {
             let var = var.trim().to_string();
             if var != "" {
@@ -749,7 +767,7 @@ fn handleprepatch(contents: &str) {
     let lines = contents.lines();
 
     for line in lines {
-        if !line.starts_with("//") && line.trim()!=""{
+        if !line.starts_with("//") && line.trim() != "" {
             syntaxerror!(0, "SyntaxError");
         }
     }

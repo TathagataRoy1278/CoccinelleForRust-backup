@@ -176,6 +176,10 @@ impl<'a> Rnode {
         &self.kind
     }
 
+    pub fn has_kind(&self, kind: &SyntaxKind) -> bool {
+        self.kind.contains(kind)
+    }
+
     // pub fn unwrap(&self) -> (Vec<SyntaxKind>, &[Rnode]) {
     //     (self.kinds(), &self.children[..])
     // }

@@ -178,7 +178,9 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                         [ifkw, _cond, _thenn] if ifkw.kinds().contains(&Tag::IF_KW) => {
                             make_graph(&[ind], graph, &rnode.children, label, &[])
                         }
-                        [ifkw, _cond, _thenn, _elsekw, _elsebr] if ifkw.kinds().contains(&Tag::IF_KW) => {
+                        [ifkw, _cond, _thenn, _elsekw, _elsebr]
+                            if ifkw.kinds().contains(&Tag::IF_KW) =>
+                        {
                             make_graph(&[ind], graph, &rnode.children, label, &[hasattr + 2])
                         }
                         _ => {

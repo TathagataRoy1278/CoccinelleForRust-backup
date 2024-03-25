@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 use super::transformationtest::TransformTest;
 
-static RULETEST: TransformTest = TransformTest {
-    prefix: "./src/tests/lifetimes/"
-};
+static RULETEST: TransformTest = TransformTest { prefix: "./src/tests/lifetimes/" };
 
 #[test]
 pub fn test1() {

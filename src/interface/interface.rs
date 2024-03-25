@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use clap::Parser;
 use crate::parsing_cocci::get_constants;
+use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -52,12 +52,11 @@ pub struct CoccinelleForRust {
     #[arg(long, value_enum, default_value_t = get_constants::Scanner::CocciGrep)]
     pub worth_trying: get_constants::Scanner,
 
-
     /// Exports the cfg in current directory as cfg.png and opens it
     /// Note that this uses graphviz for writing and w3m for viewing
     #[arg(long)]
     pub show_cfg: bool,
 
     #[arg(long)]
-    pub show_ctl: bool
+    pub show_ctl: bool,
 }

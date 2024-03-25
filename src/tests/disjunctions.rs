@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 use super::transformationtest::TransformTest;
 
-static DISJTESTS: TransformTest = TransformTest {
-    prefix: "./src/tests/disjunctions/"
-};
+static DISJTESTS: TransformTest = TransformTest { prefix: "./src/tests/disjunctions/" };
 
 #[test]
 pub fn test1() {

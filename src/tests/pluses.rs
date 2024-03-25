@@ -1,10 +1,7 @@
 #![allow(dead_code)]
 use super::transformationtest::TransformTest;
 
-static PLUSTEST: TransformTest = TransformTest {
-    prefix: "./src/tests/pluses/"
-};
-
+static PLUSTEST: TransformTest = TransformTest { prefix: "./src/tests/pluses/" };
 
 #[test]
 pub fn test1() {

@@ -3,8 +3,8 @@
 use itertools::{enumerate, Itertools};
 
 use crate::{
+    commons::util::{attach_pluses_back, attach_pluses_front},
     parsing_cocci::ast0::{Pluses, Snode},
-    commons::util::{attach_pluses_front, attach_pluses_back},
 };
 
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl Disjunction {
         for disj in &mut self.0 {
             attach_pluses_front(&mut disj[0], pluses.0.clone());
             let len = disj.len();
-            attach_pluses_back(&mut disj[len-1], pluses.1.clone());
+            attach_pluses_back(&mut disj[len - 1], pluses.1.clone());
         }
     }
 }

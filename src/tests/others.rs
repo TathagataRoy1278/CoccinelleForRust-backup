@@ -1,10 +1,7 @@
 #![allow(dead_code)]
 use super::transformationtest::TransformTest;
 
-static RULETEST: TransformTest = TransformTest {
-    prefix: "./src/tests/others/"
-};
-
+static RULETEST: TransformTest = TransformTest { prefix: "./src/tests/others/" };
 
 #[test]
 pub fn test1() {

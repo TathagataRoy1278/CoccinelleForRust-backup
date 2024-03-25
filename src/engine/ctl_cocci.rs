@@ -330,7 +330,7 @@ fn labels_for_ctl<'a>() -> fn(
                 if flow.node(*node).data().is_dummy() {
                     return prev;
                 }
-                
+
                 let binding = flow.node(*node);
                 let nodew = binding.data();
                 let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };

@@ -5,7 +5,7 @@ use std::fs;
 use crate::{
     commons::util::getstmtlist,
     engine::{
-        cocci_vs_rs::{Looper, MetavarBinding, visitrnode_tmp},
+        cocci_vs_rs::{visitrnode_tmp, Looper, MetavarBinding},
         disjunctions::{getdisjunctions, Disjunction},
     },
     parsing_cocci::{ast0::Snode, parse_cocci::processcocci},

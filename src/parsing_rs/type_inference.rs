@@ -1,20 +1,20 @@
 #![allow(unused)]
 use itertools::Itertools;
 use ra_hir_ty::display::HirDisplay;
-use ra_ide::{Semantics, AnalysisHost};
+use ra_ide::{AnalysisHost, Semantics};
 use ra_ide_db::{base_db::SourceDatabaseExt, symbol_index::SymbolsDatabase, RootDatabase};
 use ra_paths::AbsPathBuf;
 use ra_project_model::{CargoConfig, ProjectManifest, ProjectWorkspace, RustLibSource};
 use ra_rust_analyzer::cli::load_cargo::{load_workspace, LoadCargoConfig, ProcMacroServerChoice};
 use ra_syntax::{ast, AstNode, SyntaxNode};
-use std::path::Path;
 use ra_vfs::Vfs;
+use std::path::Path;
 
 use crate::commons::util::workrnode;
 
 use super::ast_rs::Rnode;
 
-pub fn gettypedb(targetpath: &str) -> (AnalysisHost, Vfs){
+pub fn gettypedb(targetpath: &str) -> (AnalysisHost, Vfs) {
     let root = Path::new(targetpath);
     let path_buf = &AbsPathBuf::assert(root.into());
     let manifest = ProjectManifest::discover_single(path_buf).unwrap();
@@ -41,7 +41,6 @@ pub fn gettypedb(targetpath: &str) -> (AnalysisHost, Vfs){
     //vfs.
     return (host, vfs);
     //let semantics = &mut Semantics::new(db);
-
 }
 
 pub fn set_types(rnode: &mut Rnode, semantics: &Semantics<'_, RootDatabase>, db: &RootDatabase) {
@@ -72,8 +71,7 @@ pub fn set_types(rnode: &mut Rnode, semantics: &Semantics<'_, RootDatabase>, db:
 
                     if namespace == "" {
                         node.wrapper.set_type(Some(typename));
-                    }
-                    else {
+                    } else {
                         node.wrapper.set_type(Some(format!("{}::{}", namespace, typename)));
                     }
                 }
@@ -85,7 +83,7 @@ pub fn set_types(rnode: &mut Rnode, semantics: &Semantics<'_, RootDatabase>, db:
                     let typename = ty.display(semantics.db).to_string();
                     node.wrapper.set_type(Some(typename));
                 }
-            }
+            },
             None => {
                 node.wrapper.set_type(None);
             }
@@ -148,7 +146,7 @@ pub fn t(targetpath: &str) {
 
             fn dfs(node: SyntaxNode, prefix: &str, semantics: &mut Semantics<'_, RootDatabase>) {
                 println!("infinite");
-                
+
                 let _typename = ast::Expr::cast(node.clone())
                     .and_then(|ex| semantics.type_of_expr(&ex.into()))
                     .map(|ex| ex.original)

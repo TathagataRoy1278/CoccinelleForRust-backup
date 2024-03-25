@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use std::vec;
 use std::rc::Rc;
+use std::vec;
 
 use itertools::Itertools;
 use ra_parser::SyntaxKind;

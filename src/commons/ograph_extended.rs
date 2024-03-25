@@ -5,7 +5,6 @@ use std::{
 
 use itertools::Itertools;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EdgeIndex(usize);
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -32,16 +31,16 @@ impl EdgeIndex {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum EdgeType {
     Default,
-    NextSibling,//gives next sibling for successor, but gives default node for predecessors
-    PrevSibling,//gives prev sibling for predecessor, but gives default node for successor
-    Sibling
+    NextSibling, //gives next sibling for successor, but gives default node for predecessors
+    PrevSibling, //gives prev sibling for predecessor, but gives default node for successor
+    Sibling,
 }
 
 impl EdgeType {
     pub fn is_default(&self) -> bool {
         match self {
             EdgeType::Default => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -155,7 +154,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
 
     pub fn add_edge(&mut self, nodei: NodeIndex, succ: NodeIndex, edgetype: EdgeType) -> EdgeIndex {
         let edge = EdgeData { origin: nodei, target: succ, edgetype: edgetype, next_edge: None };
-        
+
         let mut nei = self.edges.len();
         self.edges.push(edge.clone());
         let nodei = nodei.to_usize();

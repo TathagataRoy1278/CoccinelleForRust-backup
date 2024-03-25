@@ -4,7 +4,11 @@ use std::fs;
 use clap::Parser;
 
 use crate::{
-    commons::util::get_rcode, engine::transformation, interface::interface::CoccinelleForRust, parsing_cocci::parse_cocci::processcocci, parsing_rs::{ast_rs::Rnode, parse_rs::processrs_old}
+    commons::util::get_rcode,
+    engine::transformation,
+    interface::interface::CoccinelleForRust,
+    parsing_cocci::parse_cocci::processcocci,
+    parsing_rs::{ast_rs::Rnode, parse_rs::processrs_old},
 };
 
 pub struct TransformTest<'a> {
@@ -18,7 +22,10 @@ impl<'a> TransformTest<'a> {
             .expect("This shouldnt be empty.");
 
         let (rules, _, _) = processcocci(&patchstring);
-        let transformedcode = transformation::transformfile(&CoccinelleForRust::parse(), &rules, rustcode).ok().unwrap();
+        let transformedcode =
+            transformation::transformfile(&CoccinelleForRust::parse(), &rules, rustcode)
+                .ok()
+                .unwrap();
         let rnode = processrs_old(&get_rcode(&transformedcode)).unwrap();
         return rnode;
     }

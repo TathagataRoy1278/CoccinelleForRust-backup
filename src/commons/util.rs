@@ -211,8 +211,7 @@ pub fn workrnode(node: &mut Rnode, f: &mut dyn FnMut(&mut Rnode) -> bool) {
 pub fn isexpr(node1: &Snode) -> bool {
     use SyntaxKind::*;
 
-    let c = |c: &SyntaxKind|
-    match c {
+    let c = |c: &SyntaxKind| match c {
         TUPLE_EXPR
         | ARRAY_EXPR
         | PAREN_EXPR
@@ -250,7 +249,7 @@ pub fn isexpr(node1: &Snode) -> bool {
         | LITERAL => true,
         _ => false,
     };
-    
+
     node1.kinds().iter().any(c)
 }
 
