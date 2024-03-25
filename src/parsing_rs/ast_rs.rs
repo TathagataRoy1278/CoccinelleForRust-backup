@@ -135,8 +135,8 @@ impl Wrap {
 #[derive(Hash, Clone)]
 pub struct Rnode {
     pub wrapper: Wrap,
-    astnode: Option<SyntaxElement>, //Not SyntaxNode because we need to take
-    kind: SyntaxKind,
+    pub astnode: Option<SyntaxElement>, //Not SyntaxNode because we need to take
+    kind: Vec<SyntaxKind>,
     //care of the whitespaces
     pub children: Vec<Rnode>,
 }
@@ -154,11 +154,11 @@ impl PartialEq for Rnode {
 }
 impl Eq for Rnode {}
 
-impl Rnode {
+impl<'a> Rnode {
     pub fn new(
         wrapper: Wrap,
         astnode: Option<SyntaxElement>,
-        kind: SyntaxKind,
+        kind: Vec<SyntaxKind>,
         children: Vec<Rnode>,
     ) -> Rnode {
         return Rnode { wrapper, astnode, kind, children };
@@ -172,16 +172,16 @@ impl Rnode {
         self.astnode.as_ref().unwrap().to_string()
     }
 
-    pub fn kind(&self) -> SyntaxKind {
-        self.kind
+    pub fn kinds(&'a self) -> &'a Vec<SyntaxKind> {
+        &self.kind
     }
 
-    pub fn unwrap(&self) -> (SyntaxKind, &[Rnode]) {
-        (self.kind(), &self.children[..])
-    }
+    // pub fn unwrap(&self) -> (Vec<SyntaxKind>, &[Rnode]) {
+    //     (self.kinds(), &self.children[..])
+    // }
 
     fn print_tree_aux(&self, pref: &String) {
-        println!("{}{:?}", pref, self.kind());
+        println!("{}{:?}", pref, self.kinds());
         let mut newbuf = String::from(pref);
         newbuf.push_str(&String::from("--"));
         for child in &self.children {
@@ -320,60 +320,70 @@ impl Rnode {
     }
 
     pub fn isid(&self) -> bool {
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             PATH | PATH_SEGMENT | NAME | NAME_REF | PATH_EXPR => return true,
             _ => {
                 return self.ispat();
             }
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn islifetime(&self) -> bool {
-        return self.kind() == LIFETIME_ARG;
+        return self.kinds().contains(&LIFETIME_ARG);
     }
 
     pub fn isitem(&self) -> bool {
         use SyntaxKind::*;
 
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             CONST | ENUM | EXTERN_BLOCK | EXTERN_CRATE | FN | IMPL | MACRO_CALL | MACRO_RULES
             | MACRO_DEF | MODULE | STATIC | STRUCT | TRAIT | TRAIT_ALIAS | TYPE_ALIAS | UNION
             | USE => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn isparam(&self) -> bool {
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             PARAM | SELF_PARAM => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn ispat(&self) -> bool {
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             IDENT_PAT | BOX_PAT | REST_PAT | LITERAL_PAT | MACRO_PAT | OR_PAT | PAREN_PAT
             | PATH_PAT | WILDCARD_PAT | RANGE_PAT | RECORD_PAT | REF_PAT | SLICE_PAT
             | TUPLE_PAT | TUPLE_STRUCT_PAT | CONST_BLOCK_PAT => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn istype(&self) -> bool {
         use SyntaxKind::*;
 
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             ARRAY_TYPE | DYN_TRAIT_TYPE | FN_PTR_TYPE | FOR_TYPE | IMPL_TRAIT_TYPE | INFER_TYPE
             | MACRO_TYPE | NEVER_TYPE | PAREN_TYPE | PATH_TYPE | PTR_TYPE | REF_TYPE
             | SLICE_TYPE | TUPLE_TYPE => true,
             //NAME is not a type but, since we want to alter struct/enum
             //definitions too we include that
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn isexpr(&self) -> bool {
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             TUPLE_EXPR
             | ARRAY_EXPR
             | PAREN_EXPR
@@ -410,7 +420,9 @@ impl Rnode {
             | LITERAL
             | NAME_REF => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn equals(&self, node: &Rnode) -> bool {

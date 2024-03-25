@@ -16,11 +16,9 @@ use std::{collections::HashSet, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
-    commons::{info::WILDCARD, util::{self, attach_pluses_back, attach_pluses_front, collecttree, getstmtlist, removestmtbraces, worksnode}}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl_simple}, debugcocci, engine::ctl_cocci::{Predicate, BoundValue}, parsing_cocci::ast0::MetavarType, syntaxerror
+    commons::{info::WILDCARD, util::{self, attach_pluses_back, attach_pluses_front, collecttree, worksnode}}, ctl::{ctl_ast::{GenericCtl, GenericSubst}, ctl_engine::{Pred, Subs}, wrapper_ctl::make_ctl_simple}, debugcocci, engine::ctl_cocci::{Predicate, BoundValue}, parsing_cocci::ast0::MetavarType, syntaxerror
 };
-use ra_parser::SyntaxKind;
 
-type Tag = SyntaxKind;
 type Name = String;
 
 #[derive(Debug, Clone)]
@@ -139,7 +137,7 @@ impl Patch {
                                 debugcocci!(
                                     "Setting {}:{:?} to modifier:- {:?}",
                                     node.getstring(),
-                                    node.kind(),
+                                    node.kinds(),
                                     modifier
                                 );
                             } //debugend
@@ -164,7 +162,7 @@ impl Patch {
                                 debugcocci!(
                                     "Setting {}:{:?} to modifier:- {:?}",
                                     node.getstring(),
-                                    node.kind(),
+                                    node.kinds(),
                                     modifier
                                 );
                             } //debugend
@@ -361,75 +359,76 @@ pub struct Rule {
 }
 
 // Given the depends clause it converts it into a Dep object
-fn getdep(rules: &Vec<Rule>, lino: usize, dep: &mut Snode) -> Dep {
-    dep.print_tree();
-    match dep.kind() {
-        Tag::PREFIX_EXPR => {
-            //for NOT depends
-            let [cond, expr] = util::tuple_of_2(&mut dep.children);
-            match cond.kind() {
-                Tag::BANG => Dep::AntiDep(Box::new(getdep(rules, lino, expr))),
-                _ => syntaxerror!(lino, "Dependance must be a boolean expression"),
-            }
-        }
-        Tag::BIN_EXPR => {
-            let [lhs, cond, rhs] = util::tuple_of_3(&mut dep.children);
-            match cond.kind() {
-                Tag::AMP2 => {
-                    //Recurses
-                    Dep::AndDep(Box::new((getdep(rules, lino, lhs), getdep(rules, lino, rhs))))
-                }
-                Tag::PIPE2 => {
-                    //Recurses
-                    Dep::OrDep(Box::new((getdep(rules, lino, lhs), getdep(rules, lino, rhs))))
-                }
-                _ => syntaxerror!(lino, "Dependance must be a boolean expression"),
-            }
-        }
-        Tag::PATH_EXPR => {
-            let name = dep.getstring();
-            if rules.iter().any(|x| x.name == name) {
-                //IndexMap trait
-                Dep::Dep(name)
-            } else {
-                syntaxerror!(lino, "no such Rule", name)
-            }
-        }
-        Tag::PAREN_EXPR => {
-            let expr = &mut dep.children[1];
-            getdep(rules, lino, expr)
-        }
-        _ => syntaxerror!(lino, "malformed Rule", dep.getstring()),
-    }
+fn _getdep(_rules: &Vec<Rule>, _lino: usize, _dep: &mut Snode) -> Dep {
+    // dep.print_tree();
+    // // match dep.kinds() {
+    // //     Tag::PREFIX_EXPR => {
+    // //         //for NOT depends
+    // //         let [cond, expr] = util::tuple_of_2(&mut dep.children);
+    // //         match cond.kinds() {
+    // //             Tag::BANG => Dep::AntiDep(Box::new(getdep(rules, lino, expr))),
+    // //             _ => syntaxerror!(lino, "Dependance must be a boolean expression"),
+    // //         }
+    // //     }
+    // //     Tag::BIN_EXPR => {
+    // //         let [lhs, cond, rhs] = util::tuple_of_3(&mut dep.children);
+    // //         match cond.kinds() {
+    // //             Tag::AMP2 => {
+    // //                 //Recurses
+    // //                 Dep::AndDep(Box::new((getdep(rules, lino, lhs), getdep(rules, lino, rhs))))
+    // //             }
+    // //             Tag::PIPE2 => {
+    // //                 //Recurses
+    // //                 Dep::OrDep(Box::new((getdep(rules, lino, lhs), getdep(rules, lino, rhs))))
+    // //             }
+    // //             _ => syntaxerror!(lino, "Dependance must be a boolean expression"),
+    // //         }
+    // //     }
+    // //     Tag::PATH_EXPR => {
+    // //         let name = dep.getstring();
+    // //         if rules.iter().any(|x| x.name == name) {
+    // //             //IndexMap trait
+    // //             Dep::Dep(name)
+    // //         } else {
+    // //             syntaxerror!(lino, "no such Rule", name)
+    // //         }
+    // //     }
+    // //     Tag::PAREN_EXPR => {
+    // //         let expr = &mut dep.children[1];
+    // //         getdep(rules, lino, expr)
+    // //     }
+    // //     _ => syntaxerror!(lino, "malformed Rule", dep.getstring()),
+    // }
+    todo!()
 }
 
-fn get_blxpr(contents: &str) -> Snode {
-    wrap_root(contents)
-        .children
-        .swap_remove(0) //Fn
-        .children
-        .swap_remove(4) //BlockExpr
-}
+// fn get_blxpr(contents: &str) -> Snode {
+//     wrap_root(contents)
+//         .children
+//         .swap_remove(0) //Fn
+//         .children
+//         .swap_remove(4) //BlockExpr
+// }
 
-fn get_expr(contents: &str) -> Snode {
-    //assumes that a
-    //binary expression exists
+// fn get_expr(contents: &str) -> Snode {
+//     //assumes that a
+//     //binary expression exists
 
-    get_blxpr(contents) //BlockExpr
-        .children
-        .swap_remove(0) //StmtList
-        .children
-        .swap_remove(2) //TailExpr
-}
+//     get_blxpr(contents) //BlockExpr
+//         .children
+//         .swap_remove(0) //StmtList
+//         .children
+//         .swap_remove(2) //TailExpr
+// }
 
 /// Parses the depends on clause in the rule definition by calling getdep
-fn getdependson(rules: &Vec<Rule>, rule: &str, lino: usize) -> Dep {
-    let fnstr = format!("fn coccifn {{ {} }}", rule);
-    getdep(rules, lino, &mut get_expr(fnstr.as_str()))
-}
+// fn _getdependson(rules: &Vec<Rule>, rule: &str, lino: usize) -> Dep {
+//     let fnstr = format!("fn coccifn {{ {} }}", rule);
+//     _getdep(rules, lino, &mut get_expr(fnstr.as_str()))
+// }
 
 /// Deals with the first line of a rule definition
-fn handlerules(rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, bool) {
+fn handlerules(_rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, bool) {
     let decl = decl.join("\n");
     let mut hastype: bool = false;
     let mut tokens = decl.trim().split([' ', '\n']);
@@ -454,9 +453,10 @@ fn handlerules(rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, b
 
     let (depends, istype) = match (sword, tword, fword, fiword) {
         (Some("depends"), Some("on"), Some(rule), hastype) => {
-            let booleanexp: Name = rule.to_string();
+            let _booleanexp: Name = rule.to_string();
             let hastype: bool = hastype.is_some_and(|x| x == "type");
-            (getdependson(rules, Name::from(booleanexp).as_str(), lino), hastype)
+            // (getdependson(rules, Name::from(booleanexp).as_str(), lino), hastype)
+            (Dep::NoDep, hastype)
         }
         (hastype, None, None, None) => (Dep::NoDep, hastype.is_some_and(|x| x == "type")),
         _ => syntaxerror!(lino, "Bad Syntax"),
@@ -507,6 +507,14 @@ fn group_dots(snode: &Snode) -> Snode {
     return snode;
 }
 
+fn get_body(snode: &mut Snode) {
+    let mut stmtlist = snode.children.remove(3);
+    stmtlist.children.remove(0);
+    stmtlist.children.remove(stmtlist.children.len()-1);
+    snode.children = stmtlist;
+    snode.print_tree();
+}
+
 /// Turns values from handlemods into a patch object
 fn getpatch(
     plusbuf: &str,
@@ -520,8 +528,8 @@ fn getpatch(
     let mut p = Patch { plus: wrap_root(plusbuf.as_str()), minus: wrap_root(minusbuf.as_str())};
     p.setmetavars(metavars);
     p.setminus();
-    removestmtbraces(&mut p.minus);
-    removestmtbraces(&mut p.plus);
+    get_body(&mut p.minus);
+    get_body(&mut p.plus);
     p.striplet(hastype);
     p.tag_plus();
     p.group_dots();
@@ -591,7 +599,7 @@ fn buildrule(
         }
     }
 
-    let ctl = make_ctl_simple(getstmtlist(&currpatch.minus), false);
+    let ctl = make_ctl_simple(&currpatch.minus, false);
 
     let rule = Rule {
         name: Name::from(currrulename),

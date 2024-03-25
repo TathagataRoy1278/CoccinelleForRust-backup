@@ -470,10 +470,10 @@ fn build_or<'a>(x: Combine<'a>, y: &Combine<'a>) -> Combine<'a> {
 }
 
 fn do_get_constants<'a>(node: &'a Snode, kwds: bool, env: &HashMap<&str, Combine<'a>>) -> Combine<'a> {
-    if kwds && node.kind().is_keyword() {
+    if kwds && node.is_keyword() {
         Elem(node.totokenrec())
     }
-    else if node.kind() == Tag::PATH_EXPR {
+    else if node.kinds().contains(&Tag::PATH_EXPR) {
         if node.wrapper.metavar != MetaVar::NoMeta {
             if let Some(comb) = env.get(node.wrapper.metavar.getrulename()) {
                 comb.clone()

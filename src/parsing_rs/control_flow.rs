@@ -62,7 +62,7 @@ impl<'a> Node<'a> {
             if self.rnode().children.is_empty() {
                 format!("{}", self.rnode().getstring())
             } else {
-                format!("{:?}", self.rnode().kind())
+                format!("{:?}", self.rnode().kinds())
             }
         }
     }
@@ -115,7 +115,8 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
         if children.is_empty() {
             (children, false)
         } else {
-            if children[0].kind() == SyntaxKind::ATTR {
+            //always first element has to be the attribute
+            if children[0].kinds().contains(&SyntaxKind::ATTR) {
                 return (&children[1..], true);
             } else {
                 return (children, false);
@@ -143,7 +144,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
         }
 
         let mut rnodes = rnodes.iter().peekable();
-        let mut ends = vec![];//has the last nodes which need to be linked to the next ones
+        let mut ends = vec![]; //has the last nodes which need to be linked to the next ones
         let mut ctr: usize = 0;
 
         while rnodes.peek().is_some() {
@@ -169,15 +170,15 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
             });
 
             use ra_parser::SyntaxKind as Tag;
-            let (inds, pindst) = match rnode.kind() {
-                Tag::IF_EXPR => {
+            let (inds, pindst) = match rnode.kinds().as_slice() {
+                [Tag::IF_EXPR] => {
                     let (children, hasattr) = rem_attr(rnode.children.as_slice());
                     let hasattr: usize = if hasattr { 1 } else { 0 };
                     match children {
-                        [ifkw, _cond,_thenn] if ifkw.kind() == Tag::IF_KW => {
+                        [ifkw, _cond, _thenn] if ifkw.kinds().contains(&Tag::IF_KW) => {
                             make_graph(&[ind], graph, &rnode.children, label, &[])
                         }
-                        [ifkw, _cond,_thenn, _elsekw, _elsebr] if ifkw.kind() == Tag::IF_KW => {
+                        [ifkw, _cond, _thenn, _elsekw, _elsebr] if ifkw.kinds().contains(&Tag::IF_KW) => {
                             make_graph(&[ind], graph, &rnode.children, label, &[hasattr + 2])
                         }
                         _ => {

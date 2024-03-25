@@ -2,18 +2,14 @@
 
 use clap::Parser;
 use coccinelleforrust::commons::info::ParseError::*;
-use coccinelleforrust::commons::util::{attach_spaces_right, getstmtlist};
+use coccinelleforrust::commons::util::attach_spaces_right;
 use coccinelleforrust::ctl::ctl_ast::{GenericSubst, GenericWitnessTree};
-use coccinelleforrust::ctl::wrapper_ctl::make_ctl_simple;
+use coccinelleforrust::debugcocci;
 use coccinelleforrust::engine::cocci_vs_rs::Environment;
-use coccinelleforrust::engine::ctl_cocci::{processctl, CWitnessTree, BoundValue};
+use coccinelleforrust::engine::ctl_cocci::{BoundValue, CWitnessTree};
 use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
 use coccinelleforrust::parsing_rs::ast_rs::Rcode;
-use coccinelleforrust::parsing_rs::control_flow::asts_to_flow;
-use coccinelleforrust::parsing_rs::parse_rs::
-    processrs
-;
-use coccinelleforrust::debugcocci;
+use coccinelleforrust::parsing_rs::parse_rs::processrs;
 use coccinelleforrust::{
     engine::cocci_vs_rs::MetavarBinding, engine::transformation,
     interface::interface::CoccinelleForRust, parsing_cocci::ast0::Snode, parsing_rs::ast_rs::Rnode,
@@ -58,8 +54,8 @@ fn init_logger(args: &CoccinelleForRust) {
 
 pub fn adjustformat(node1: &mut Rnode, node2: &Rnode, mut line: Option<usize>) -> Option<usize> {
     // if line.is_some() {
-        // eprintln!("{:?}", line);
-        // eprintln!("{} here", node1.getunformatted());
+    // eprintln!("{:?}", line);
+    // eprintln!("{} here", node1.getunformatted());
     // }
 
     if node1.wrapper.wspaces.0.contains("/*COCCIVAR*/") {
@@ -174,7 +170,8 @@ fn getformattedfile(
                     String::from_utf8(output.stderr).unwrap_or(String::from("NONE"))
                 );
             }
-        } {
+        }
+        {
             // let s = fs::read_to_string(&randrustfile);
             // eprintln!("wjere = {}", s.unwrap());
         }
@@ -445,7 +442,7 @@ fn visit_dirs(dir: &Path, ignore: &str, cb: &mut dyn FnMut(&DirEntry)) -> io::Re
 //     // let bindings =
 // }
 
-fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
+fn _transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
     fn aux(wit: &CWitnessTree) -> Vec<Environment> {
         let mut genvs = vec![];
         let mut cenv = Environment::new();
@@ -463,6 +460,7 @@ fn transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                             BoundValue::Mod(_, modif) => {
                                 cenv.modifiers.add_modifs(modif.clone());
                             }
+                            BoundValue::Label(_) => {}
                         },
                         GenericSubst::NegSubst(_, _) => panic!(),
                     }
@@ -674,56 +672,56 @@ fn _run_test(_args: &CoccinelleForRust) {
     // // });
 }
 
-fn run(args: &CoccinelleForRust) {
-    let contents = fs::read_to_string(&args.coccifile).unwrap();
-    let rules = processcocci(&contents).0;
-    let snode = if rules.len() > 1 { todo!() } else { getstmtlist(&rules[0].patch.minus) };
-    // let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
-    // let st = snodes.clone();
+// fn run(args: &CoccinelleForRust) {
+//     let contents = fs::read_to_string(&args.coccifile).unwrap();
+//     let rules = processcocci(&contents).0;
+//     let snode = if rules.len() > 1 { todo!() } else { getstmtlist(&rules[0].patch.minus) };
+//     // let mut snodes = getstmtlist(&processcocci(&contents).0.remove(0).patch.minus).clone().children;
+//     // let st = snodes.clone();
 
-    let rfile = fs::read_to_string(&args.targetpath).unwrap();
-    let rnodes = processrs(&rfile).unwrap();
+//     let rfile = fs::read_to_string(&args.targetpath).unwrap();
+//     let rnodes = processrs(&rfile).unwrap();
 
-    //Notice how we use vec![x] to wrap each function
-    let mut rnodes = rnodes.0.into_iter().map(|x| vec![x]).collect_vec();
+//     //Notice how we use vec![x] to wrap each function
+//     let mut rnodes = rnodes.0.into_iter().map(|x| vec![x]).collect_vec();
 
-    // let rnodes = rnodes.into_iter()
-    let flows = asts_to_flow(&rnodes);
+//     // let rnodes = rnodes.into_iter()
+//     let flows = asts_to_flow(&rnodes);
 
-    let a = make_ctl_simple(snode, false);
+//     let a = make_ctl_simple(snode, false);
 
-    if args.show_cfg {
-        coccinelleforrust::commons::util::show_cfg(&flows[0]);
-    }
+//     if args.show_cfg {
+//         coccinelleforrust::commons::util::show_cfg(&flows[0]);
+//     }
 
-    if args.show_ctl {
-        eprintln!("CTL - {}", a);
-    }
+//     if args.show_ctl {
+//         eprintln!("CTL - {}", a);
+//     }
 
-    let mut trees = vec![];
-    for flow in flows.iter() {
-        let res = processctl(&a, flow, &vec![]);
-        eprintln!("Churno - {:?}", res);
-        trees.push(res.into_iter().map(|(_, _, tree)| tree).collect_vec());
-    }
+//     let mut trees = vec![];
+//     for flow in flows.iter() {
+//         let res = processctl(&a, flow, &vec![]);
+//         eprintln!("Churno - {:?}", res);
+//         trees.push(res.into_iter().map(|(_, _, tree)| tree).collect_vec());
+//     }
 
-    for (i, tree) in trees.iter().enumerate() {
-        eprintln!("TREE - {:#?}", tree);
-        transform(tree, &mut rnodes[i][0]);
-    }
+//     for (i, tree) in trees.iter().enumerate() {
+//         eprintln!("TREE - {:#?}", tree);
+//         transform(tree, &mut rnodes[i][0]);
+//     }
 
-    for rnode in rnodes {
-        eprintln!("{}", rnode[0].getstring());
-    }
-    // make_graphviz(&flow, "/home/troy/tmp/tmp.gviz");
-}
+//     for rnode in rnodes {
+//         eprintln!("{}", rnode[0].getstring());
+//     }
+//     // make_graphviz(&flow, "/home/troy/tmp/tmp.gviz");
+// }
 
 fn main() {
     let args = CoccinelleForRust::parse();
     init_logger(&args);
 
     if args.dots.is_some() {
-        run(&args);
+        // run(&args);
         exit(1);
     }
 

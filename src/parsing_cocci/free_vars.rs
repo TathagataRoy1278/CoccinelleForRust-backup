@@ -8,8 +8,8 @@ use ra_parser::SyntaxKind;
 use std::collections::HashSet;
 use std::vec;
 
-use super::parse_cocci::Rule;
 use super::ast0::{KeepBinding, MetaVar, Snode};
+use super::parse_cocci::Rule;
 use crate::commons::util::worktree_pure;
 
 type Tag = SyntaxKind;
@@ -39,7 +39,7 @@ fn collect_unitary_nonunitary(free_usage: &Vec<MetaVar>) -> (HashSet<MetaVar>, H
 
 fn collect_refs(root: &Snode, add: &mut dyn FnMut(MetaVar)) {
     let mut work = |node: &Snode| {
-        if let Tag::NAME_REF = node.kind() {
+        if node.kinds().contains(&Tag::NAME_REF) {
             match &node.wrapper.metavar {
                 MetaVar::NoMeta => {}
                 mv => add(mv.clone()),
@@ -63,11 +63,11 @@ fn collect_plus_refs(mut root: &mut Snode) -> HashSet<MetaVar> {
     };
     let mut work_exp_list_list = |expss: &Vec<Snode>| {
         for x in expss.iter() {
-                collect_refs(x, &mut add)
+            collect_refs(x, &mut add)
         }
     };
     let mut work = |node: &Snode| {
-        let (lplusses,rplusses) = node.wrapper.mcodekind.getpluses();
+        let (lplusses, rplusses) = node.wrapper.mcodekind.getpluses();
         work_exp_list_list(&lplusses);
         work_exp_list_list(&rplusses);
     };
@@ -138,10 +138,7 @@ fn classify_rule_variables(rule: &mut Rule, used_after: &mut Vec<MetaVar>) {
     }
 
     // drop the local variables from used_after
-    if let Some(index) = used_after
-        .iter()
-        .position(|value| value.getrulename() == curname)
-    {
+    if let Some(index) = used_after.iter().position(|value| value.getrulename() == curname) {
         used_after.remove(index);
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 use ra_ide_db::line_index::LineIndex;
+use ra_parser::SyntaxKind;
 use ra_syntax::{SourceFile, SyntaxElement, SyntaxError, SyntaxNode};
 
 use crate::{
@@ -30,18 +31,20 @@ pub fn fill_wrap(lindex: &LineIndex, node: &SyntaxElement) -> Wrap {
     wrap
 }
 
-pub fn processrswithsemantics(contents: &str, rnode: SyntaxNode) -> Result<Rnode, String> {
+pub fn processrswithsemantics(contents: &str, _rnode: SyntaxNode) -> Result<Rnode, String> {
     //TODO put this in ast_rs.rs
     let lindex = LineIndex::new(contents);
 
-    let wrap_node = &|node: SyntaxElement, df: &dyn Fn(&SyntaxElement) -> Vec<Rnode>| -> Rnode {
+    let _wrap_node = &|node: SyntaxElement, df: &dyn Fn(&SyntaxElement) -> Vec<Rnode>| -> Rnode {
         let wrapped = fill_wrap(&lindex, &node);
         let kind = node.kind();
         let children = df(&node);
-        let rnode = Rnode::new(wrapped, Some(node), kind, children);
+        let rnode = Rnode::new(wrapped, Some(node), vec![kind], children);
         rnode
     };
-    Ok(work_node(wrap_node, SyntaxElement::Node(rnode)))
+    // Ok::<Rnode, String>(work_node(wrap_node, SyntaxElement::Node(rnode)));
+    todo!() //I changed the above code during the conversion of SyntaxKind to Vec<SyntaxKind>
+            //So check how stuff will work beforer removing this todo
 }
 
 fn pretty_print_errors(errors: &[SyntaxError], code: &str, lindex: &LineIndex) -> String {
@@ -87,52 +90,64 @@ pub fn divide_fns(rnode: Rnode) -> Vec<Rnode> {
     return rnode.children;
 }
 
-pub fn processrs_old(contents: &str) -> Result<Rnode, String> {
+pub fn processrs_old(_contents: &str) -> Result<Rnode, String> {
     //TODO put this in ast_rs.rs
-    let lindex = LineIndex::new(contents);
-    let parse = SourceFile::parse(contents);
+    // let lindex = LineIndex::new(contents);
+    // let parse = SourceFile::parse(contents);
 
-    if contents.trim().is_empty() {
-        let node = parse.syntax_node();
-        let kind = node.kind();
-        return Ok(Rnode::new(Wrap::dummy(1), Some(SyntaxElement::Node(node)), kind, vec![]));
+    // if contents.trim().is_empty() {
+    //     let node = parse.syntax_node();
+    //     let kind = node.kind();
+    //     return Ok(Rnode::new(Wrap::dummy(1), Some(SyntaxElement::Node(node)), kind, vec![]));
+    // }
+
+    // let errors = parse.errors();
+
+    // if errors.len() != 0 {
+    //     /*
+    //     let mut errorstr = String::new();
+    //     errorstr.push_str(contents);
+    //     errorstr.push('\n');
+    //     for error in errors {
+    //         let lindex = lindex.line_col(error.range().start());
+    //         errorstr.push_str(&format!(
+    //             "Error : {} at line: {}, col {}\n",
+    //             error.to_string(),
+    //             lindex.line,
+    //             lindex.col
+    //         ));
+    //     }
+    //     */
+    //     return Err(pretty_print_errors(errors, contents, &lindex));
+    // }
+    // let root = parse.syntax_node();
+
+    // let wrap_node = &|node: SyntaxElement, df: &dyn Fn(&SyntaxElement) -> Vec<Rnode>| -> Rnode {
+    //     let wrapped = fill_wrap(&lindex, &node);
+    //     let children = df(&node);
+    //     let kind = node.kind();
+    //     let node = if children.len() == 0 { Some(node) } else { None };
+    //     let rnode = Rnode::new(
+    //         wrapped, node, //Change this to SyntaxElement
+    //         kind, children,
+    //     );
+    //     rnode
+    // };
+
+    // let rnode = work_node(wrap_node, SyntaxElement::Node(root));
+    // Ok(rnode)
+
+    todo!()
+    //remove this function once everything is stable
+}
+
+pub fn split_into_fns(rnode: Rnode) -> Rcode {
+    if rnode.kinds().as_slice() == [SyntaxKind::SOURCE_FILE] {
+        return Rcode(rnode.children)
     }
-
-    let errors = parse.errors();
-
-    if errors.len() != 0 {
-        /*
-        let mut errorstr = String::new();
-        errorstr.push_str(contents);
-        errorstr.push('\n');
-        for error in errors {
-            let lindex = lindex.line_col(error.range().start());
-            errorstr.push_str(&format!(
-                "Error : {} at line: {}, col {}\n",
-                error.to_string(),
-                lindex.line,
-                lindex.col
-            ));
-        }
-        */
-        return Err(pretty_print_errors(errors, contents, &lindex));
+    else {
+        return Rcode(vec![rnode])
     }
-    let root = parse.syntax_node();
-
-    let wrap_node = &|node: SyntaxElement, df: &dyn Fn(&SyntaxElement) -> Vec<Rnode>| -> Rnode {
-        let wrapped = fill_wrap(&lindex, &node);
-        let children = df(&node);
-        let kind = node.kind();
-        let node = if children.len() == 0 { Some(node) } else { None };
-        let rnode = Rnode::new(
-            wrapped, node, //Change this to SyntaxElement
-            kind, children,
-        );
-        rnode
-    };
-
-    let rnode = work_node(wrap_node, SyntaxElement::Node(root));
-    Ok(rnode)
 }
 
 pub fn processrs(contents: &str) -> Result<Rcode, String> {
@@ -146,7 +161,7 @@ pub fn processrs(contents: &str) -> Result<Rcode, String> {
         return Ok(Rcode(vec![Rnode::new(
             Wrap::dummy(1),
             Some(SyntaxElement::Node(node)),
-            kind,
+            vec![kind],
             vec![],
         )]));
     }
@@ -174,16 +189,25 @@ pub fn processrs(contents: &str) -> Result<Rcode, String> {
 
     let wrap_node = &|node: SyntaxElement, df: &dyn Fn(&SyntaxElement) -> Vec<Rnode>| -> Rnode {
         let wrapped = fill_wrap(&lindex, &node);
-        let children = df(&node);
-        let kind = node.kind();
-        let node = if children.len() == 0 { Some(node) } else { None };
+        let mut children = df(&node);
+        let mut kinds = vec![node.kind()];
+        let mut node = if children.len() == 0 { Some(node) } else { None };
+
+        if children.len() == 1 {
+            let child = children.remove(0);
+            kinds.extend(child.kinds());
+
+            node = child.astnode;
+            children = child.children;
+        }
+
         let rnode = Rnode::new(
             wrapped, node, //Change this to SyntaxElement
-            kind, children,
+            kinds, children,
         );
         rnode
     };
 
     let rnode = work_node(wrap_node, SyntaxElement::Node(root));
-    Ok(Rcode(rnode.children))
+    Ok(split_into_fns(rnode))
 }

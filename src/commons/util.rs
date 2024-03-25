@@ -18,7 +18,6 @@ use regex::Regex;
 
 use super::graphviz::make_graphviz;
 
-type Tag = SyntaxKind;
 static PUNCTUATIONS: [char; 13] = [',', '.', '!', ':', ';', '?', '=', '(', ')', '[', ']', '{', '}'];
 
 #[macro_export]
@@ -212,7 +211,8 @@ pub fn workrnode(node: &mut Rnode, f: &mut dyn FnMut(&mut Rnode) -> bool) {
 pub fn isexpr(node1: &Snode) -> bool {
     use SyntaxKind::*;
 
-    match node1.kind() {
+    let c = |c: &SyntaxKind|
+    match c {
         TUPLE_EXPR
         | ARRAY_EXPR
         | PAREN_EXPR
@@ -249,7 +249,9 @@ pub fn isexpr(node1: &Snode) -> bool {
         | EXPR_STMT
         | LITERAL => true,
         _ => false,
-    }
+    };
+    
+    node1.kinds().iter().any(c)
 }
 
 pub fn removestmtbraces<'a>(node: &'a mut Snode) {
@@ -285,65 +287,65 @@ pub fn getstmtlist<'a>(node: &'a Snode) -> &'a Snode {
     return stmtlist;
 }
 
+// /// Get NameRef from PathType
+// pub fn getnrfrompt<'a>(node1: &'a Snode) -> &'a Snode {
+//     //This part removes the qualifier from the path
+//     let node1 = &node1.children[0]; //Gets path
+//     let psegment = match &node1.children[..] {
+//         [_qualifier, psegment] => psegment,
+//         [psegment] => psegment,
+//         _ => {
+//             panic!("Path should have 1 or 2 children: qualifier? Pathsegment")
+//         }
+//     };
+//     //Gets rid of the generic args list
+//     //For non-type inferenced checks, generic args are skipped
+//     let name_ref1 = match &psegment.children.iter().map(|x| x.kinds()).collect_vec()[..] {
+//         [Tag::COLON2, Tag::NAME_REF] => &psegment.children[1],
+//         [Tag::NAME_REF] | [Tag::NAME_REF, _] | [Tag::NAME_REF, _, _] => &psegment.children[0],
+//         _ => {
+//             println!(
+//                 "{:#?}, {}",
+//                 &psegment.children.iter().map(|x| x.kinds()).collect_vec()[..],
+//                 psegment.getstring()
+//             );
+//             panic!("PathSegment not fully implented in exceptional_workon");
+//         } //There is one missing branch here: '<' PathType ('as' PathType)? '>'
+//           //I am not sure how to handle that branch
+//     };
+
+//     return name_ref1;
+// }
+
 /// Get NameRef from PathType
-pub fn getnrfrompt<'a>(node1: &'a Snode) -> &'a Snode {
-    //This part removes the qualifier from the path
-    let node1 = &node1.children[0]; //Gets path
-    let psegment = match &node1.children[..] {
-        [_qualifier, psegment] => psegment,
-        [psegment] => psegment,
-        _ => {
-            panic!("Path should have 1 or 2 children: qualifier? Pathsegment")
-        }
-    };
-    //Gets rid of the generic args list
-    //For non-type inferenced checks, generic args are skipped
-    let name_ref1 = match &psegment.children.iter().map(|x| x.kind()).collect_vec()[..] {
-        [Tag::COLON2, Tag::NAME_REF] => &psegment.children[1],
-        [Tag::NAME_REF] | [Tag::NAME_REF, _] | [Tag::NAME_REF, _, _] => &psegment.children[0],
-        _ => {
-            println!(
-                "{:#?}, {}",
-                &psegment.children.iter().map(|x| x.kind()).collect_vec()[..],
-                psegment.getstring()
-            );
-            panic!("PathSegment not fully implented in exceptional_workon");
-        } //There is one missing branch here: '<' PathType ('as' PathType)? '>'
-          //I am not sure how to handle that branch
-    };
+// pub fn getnrfrompt_r<'a>(node1: &'a Rnode) -> &'a Rnode {
+//     //This part removes the qualifier from the path
+//     let node1 = &node1.children[0]; //Gets path
+//     let psegment = match &node1.children[..] {
+//         [_qualifier, psegment] => psegment,
+//         [psegment] => psegment,
+//         _ => {
+//             panic!("Path should have 1 or 2 children: qualifier? Pathsegment")
+//         }
+//     };
+//     //Gets rid of the generic args list
+//     //For non-type inferenced checks, generic args are skipped
+//     let name_ref1 = match &psegment.children.iter().map(|x| x.kinds()).collect_vec()[..] {
+//         [Tag::COLON2, Tag::NAME_REF] => &psegment.children[1],
+//         [Tag::NAME_REF] | [Tag::NAME_REF, _] | [Tag::NAME_REF, _, _] => &psegment.children[0],
+//         _ => {
+//             println!(
+//                 "{:#?}, {}",
+//                 &psegment.children.iter().map(|x| x.kinds()).collect_vec()[..],
+//                 psegment.getstring()
+//             );
+//             panic!("PathSegment not fully implented in exceptional_workon");
+//         } //There is one missing branch here: '<' PathType ('as' PathType)? '>'
+//           //I am not sure how to handle that branch
+//     };
 
-    return name_ref1;
-}
-
-/// Get NameRef from PathType
-pub fn getnrfrompt_r<'a>(node1: &'a Rnode) -> &'a Rnode {
-    //This part removes the qualifier from the path
-    let node1 = &node1.children[0]; //Gets path
-    let psegment = match &node1.children[..] {
-        [_qualifier, psegment] => psegment,
-        [psegment] => psegment,
-        _ => {
-            panic!("Path should have 1 or 2 children: qualifier? Pathsegment")
-        }
-    };
-    //Gets rid of the generic args list
-    //For non-type inferenced checks, generic args are skipped
-    let name_ref1 = match &psegment.children.iter().map(|x| x.kind()).collect_vec()[..] {
-        [Tag::COLON2, Tag::NAME_REF] => &psegment.children[1],
-        [Tag::NAME_REF] | [Tag::NAME_REF, _] | [Tag::NAME_REF, _, _] => &psegment.children[0],
-        _ => {
-            println!(
-                "{:#?}, {}",
-                &psegment.children.iter().map(|x| x.kind()).collect_vec()[..],
-                psegment.getstring()
-            );
-            panic!("PathSegment not fully implented in exceptional_workon");
-        } //There is one missing branch here: '<' PathType ('as' PathType)? '>'
-          //I am not sure how to handle that branch
-    };
-
-    return name_ref1;
-}
+//     return name_ref1;
+// }
 
 pub fn get_pluses_back(node: &Snode) -> Vec<Snode> {
     let len = node.children.len();
@@ -401,7 +403,7 @@ pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
                 "Plus Statements:- {:#?} attached to front of {}:{:?}",
                 plus.iter().map(|x| x.getstring()).collect_vec(),
                 node.getstring(),
-                node.kind()
+                node.kinds()
             );
         }
         match &mut node.wrapper.mcodekind {
@@ -430,7 +432,7 @@ pub fn attach_pluses_back(node: &mut Snode, plus: Vec<Snode>) {
                 "Plus Statements:- {:#?} attached to back of {}:{:?}",
                 plus.iter().map(|x| x.getstring()).collect_vec(),
                 node.getstring(),
-                node.kind()
+                node.kinds()
             );
         }
         match &mut node.wrapper.mcodekind {

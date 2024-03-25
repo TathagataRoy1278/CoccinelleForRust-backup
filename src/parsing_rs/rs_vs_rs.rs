@@ -5,7 +5,7 @@ use itertools::izip;
 
 #[allow(dead_code)]
 fn matcher(a: &Snode, b: &Snode) -> bool {
-    match (a.kind(), b.kind()) {
+    match (a.kinds(), b.kinds()) {
         _ => {
             for (e1, e2) in izip!(&a.children, &b.children) {
                 if !matcher(e1, e2) {

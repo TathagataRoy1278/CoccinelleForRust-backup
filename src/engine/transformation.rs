@@ -30,10 +30,7 @@ use crate::{
     },
 };
 
-use super::{
-    cocci_vs_rs::Environment,
-    ctl_cocci::CWitnessTree,
-};
+use super::{cocci_vs_rs::Environment, ctl_cocci::CWitnessTree};
 
 fn _tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
     vec![]
@@ -51,7 +48,7 @@ fn copytornodewithenv(snode: Snode, env: &Environment) -> Rnode {
             panic!("Metavariable should already be present in environment.");
         }
     }
-    let kind = snode.kind();
+    let kind = snode.kinds().clone();
 
     let wdummy = Wrap::dummy(snode.children.len());
     // if snode.children.len() == 0 {
@@ -338,6 +335,7 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                     env.modifiers.add_modifs(modif.clone());
                                 });
                             }
+                            BoundValue::Label(_label) => {}
                         },
                         GenericSubst::NegSubst(_, _) => {}
                     }

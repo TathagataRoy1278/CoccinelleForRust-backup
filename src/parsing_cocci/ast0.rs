@@ -19,7 +19,7 @@ pub struct Snode {
     pub wrapper: Wrap,
     pub is_dots: bool,
     pub asttoken: Option<SyntaxElement>,
-    kind: SyntaxKind,
+    kind: Vec<SyntaxKind>,
     pub children: Vec<Snode>,
 }
 
@@ -60,7 +60,7 @@ impl<'a> Snode {
             wrapper: Wrap::make_dummy(),
             is_dots: true,
             asttoken: None,
-            kind: SyntaxKind::EXPR_STMT, //No meaning
+            kind: vec![SyntaxKind::EXPR_STMT], //No meaning
             children: vec![],
         }
     }
@@ -90,8 +90,8 @@ impl<'a> Snode {
         return aux(self);
     }
 
-    pub fn kind(&self) -> SyntaxKind {
-        self.kind
+    pub fn kinds(&'a self) -> &'a Vec<SyntaxKind> {
+        &self.kind
     }
 
     pub fn getstring(&self) -> String {
@@ -116,7 +116,7 @@ impl<'a> Snode {
         println!(
             "{}{:?}, {:?}: {:?}",
             pref,
-            self.kind(),
+            self.kinds(),
             self.wrapper.mcodekind,
             self.wrapper.metavar
         );
@@ -134,65 +134,72 @@ impl<'a> Snode {
 
     pub fn istype(&self) -> bool {
         use SyntaxKind::*;
-
-        match self.kind() {
+        let c = |a: &SyntaxKind| match a {
             ARRAY_TYPE | DYN_TRAIT_TYPE | FN_PTR_TYPE | FOR_TYPE | IMPL_TRAIT_TYPE | INFER_TYPE
             | MACRO_TYPE | NEVER_TYPE | PAREN_TYPE | PATH_TYPE | PTR_TYPE | REF_TYPE
             | SLICE_TYPE | TUPLE_TYPE => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn islifetime(&self) -> bool {
         //NOTE: TYPE_ARG is used because we use the lifetime metavariables
         //may not have a '(quote) so for the semantic patch A<a, b>, a and b
         //can be lifetimes if defined so in the metavar declaration
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             SyntaxKind::LIFETIME_ARG | SyntaxKind::TYPE_ARG => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn isparam(&self) -> bool {
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             SyntaxKind::PARAM | SyntaxKind::SELF_PARAM => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn isid(&self) -> bool {
         use SyntaxKind::*;
-        return self.kind() == PATH
-            || self.kind() == NAME
-            || self.kind() == NAME_REF
-            || self.ispat();
+        self.kinds().iter().any(|c| return *c == PATH || *c == NAME || *c == NAME_REF)
+            || self.ispat()
     }
 
     pub fn ispat(&self) -> bool {
         use SyntaxKind::*;
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             IDENT_PAT | BOX_PAT | REST_PAT | LITERAL_PAT | MACRO_PAT | OR_PAT | PAREN_PAT
             | PATH_PAT | WILDCARD_PAT | RANGE_PAT | RECORD_PAT | REF_PAT | SLICE_PAT
             | TUPLE_PAT | TUPLE_STRUCT_PAT | CONST_BLOCK_PAT => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn isitem(&self) -> bool {
         use SyntaxKind::*;
 
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             CONST | ENUM | EXTERN_BLOCK | EXTERN_CRATE | FN | IMPL | MACRO_CALL | MACRO_RULES
             | MACRO_DEF | MODULE | STATIC | STRUCT | TRAIT | TRAIT_ALIAS | TYPE_ALIAS | UNION
             | USE => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
     }
 
     pub fn isexpr(&self) -> bool {
         use SyntaxKind::*;
 
-        match self.kind() {
+        let c = |c: &SyntaxKind| match c {
             TUPLE_EXPR
             | ARRAY_EXPR
             | PAREN_EXPR
@@ -229,7 +236,13 @@ impl<'a> Snode {
             | LITERAL
             | NAME_REF => true,
             _ => false,
-        }
+        };
+
+        self.kinds().iter().any(c)
+    }
+
+    pub fn is_keyword(&self) -> bool {
+        self.kinds().iter().any(|c| c.is_keyword())
     }
 
     pub fn getdisjs(&'a self) -> (Vec<&'a Snode>, Pluses) {
@@ -258,7 +271,7 @@ impl<'a> Snode {
         let mut constants: HashSet<String> = HashSet::new();
 
         let mut f = |node: &Snode| {
-            if node.kind().is_keyword() {
+            if node.is_keyword() {
                 constants.insert(node.totoken());
             }
         };
@@ -291,7 +304,7 @@ impl MetavarName {
 
     pub fn is_v(&self) -> bool {
         self.rulename == "NONE" && self.varname == "_v"
-    }    
+    }
 }
 
 impl Display for MetavarName {
@@ -697,7 +710,7 @@ pub struct Wrap {
     pub isdisj: bool,
     pub mcodekind: Mcodekind, //McodeKind contains the plusses if any
     pub is_modded: bool,
-    pub freevars: Vec<MetaVar>
+    pub freevars: Vec<MetaVar>,
 }
 
 impl Wrap {
@@ -725,7 +738,7 @@ impl Wrap {
             mcodekind: Mcodekind::Context(vec![], vec![]), //All tokens start out as context
             //before being modified accordingly
             is_modded: false,
-            freevars: vec![]
+            freevars: vec![],
         }
     }
 
@@ -812,21 +825,9 @@ pub fn fill_wrap(lindex: &LineIndex, node: &SyntaxElement) -> Wrap {
     wrap
 }
 
-pub fn parsedisjs<'a>(node: &mut Snode) {
+pub fn parsedisjs<'a>(_node: &mut Snode) {
     //for later
-    if node.kind() == SyntaxKind::IF_EXPR {
-        //println!("does it come here");
-        //let ifexpr: IfExpr = IfExpr::cast(node.astnode.into_node().unwrap()).unwrap();//Just checked above
-        let cond = &node.children[1]; //this gets the node for condition
-        if cond.kind() == SyntaxKind::PATH_EXPR && cond.getstring() == "COCCIVAR" {
-            let block = &mut node.children[2].children[0].children;
-            //println!("{:?}", block[0].kind());
-            block.remove(0);
-            block.remove(block.len() - 1);
-            node.wrapper.isdisj = true;
-            //println!("december slowly creeps into my eptember heart");
-        }
-    }
+    todo!()
 }
 
 pub fn wrap_root(contents: &str) -> Snode {
@@ -865,17 +866,32 @@ pub fn wrap_root(contents: &str) -> Snode {
      -> Snode {
         let mut wrapped = fill_wrap(&lindex, &node);
         wrapped.setmodkind(modkind.unwrap_or(String::new()));
-        let kind = node.kind();
-        let children = df(&node);
-        let node = if children.len() == 0 { Some(node) } else { None };
-        let mut snode = Snode {
+        let mut kinds = vec![node.kind()];
+        let mut children = df(&node);
+        let mut node = if children.len() == 0 {
+            Some(node)
+        } else {
+            None
+        };
+
+        if children.len() == 1 {
+            let child = children.remove(0);
+            kinds.extend(child.kinds());
+
+            node = child.asttoken;
+            children = child.children;
+            //decide what to do with dots
+        };
+
+
+        let snode = Snode {
             wrapper: wrapped,
             is_dots: false,
             asttoken: node, //Change this to SyntaxElement
-            kind: kind,
+            kind: kinds,
             children: children,
         };
-        parsedisjs(&mut snode);
+        // parsedisjs(&mut snode);
 
         // DEPRECATED
         // if snode.kind() == SyntaxKind::EXPR_STMT && snode.children.len() == 1 {

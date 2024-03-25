@@ -182,7 +182,7 @@ pub enum Predicate {
     //bool for if is after a metavariable
     //in which case successor is the next
     //sibling
-    Kind(SyntaxKind, bool),
+    Kind(Vec<SyntaxKind>, bool),
     Paren(MetavarName, bool),
     Label(MetavarName, bool),
 }
@@ -309,13 +309,13 @@ fn labels_for_ctl<'a>() -> fn(
                     }
                 })
             }
-            Predicate::Kind(kind, pim) => {
+            Predicate::Kind(kinds, pim) => {
                 // eprintln!("krodher agun {:?}", kind);
                 flow.nodes().iter().fold(vec![], |mut prev, node| {
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
-                        if flow.node(*node).data().rnode().kind().eq(kind) {
+                        if flow.node(*node).data().rnode().kinds().eq(kinds) {
                             let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
                             prev.push((Node(node.clone(), tet), vec![], vec![]))
                         }

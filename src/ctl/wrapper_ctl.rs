@@ -1,9 +1,8 @@
-
 use ra_parser::SyntaxKind;
 
 use crate::{
     ctl::ctl_ast::{Direction, Strict},
-    engine::ctl_cocci::{Predicate, BoundValue},
+    engine::ctl_cocci::{BoundValue, Predicate},
     parsing_cocci::{
         ast0::{MetavarName, Snode},
         parse_cocci::Patch,
@@ -41,8 +40,8 @@ fn dots_has_mv(dots: &Snode) -> bool {
 }
 
 pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
-    fn get_kind_pred(ctl: Box<CTL>, kind: SyntaxKind, prev_is_mvar: bool) -> Box<CTL> {
-        let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind, prev_is_mvar)));
+    fn get_kind_pred(ctl: Box<CTL>, kind: &Vec<SyntaxKind>, prev_is_mvar: bool) -> Box<CTL> {
+        let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind.clone(), prev_is_mvar)));
         let fctl = CTL::And(
             Strict::Strict,
             kind_pred,
@@ -110,7 +109,6 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
     fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
         if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
             if !snode.is_dots {
-
                 //Sets the modif
                 let tmpp = if snode.wrapper.is_modded {
                     Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar)))
@@ -145,7 +143,9 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                     tmpp
                 };
 
-                if snode.wrapper.metavar.ismeta() && snode.wrapper.freevars.contains(&snode.wrapper.metavar) {
+                if snode.wrapper.metavar.ismeta()
+                    && snode.wrapper.freevars.contains(&snode.wrapper.metavar)
+                {
                     Box::new(CTL::Exists(true, snode.wrapper.metavar.getminfo().0.clone(), nextctl))
                 } else {
                     nextctl
@@ -155,9 +155,9 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             }
         } else if snode.children.len() == 1 {
             let ctl = aux(&snode.children[0], attach_end, false);
-            get_kind_pred(ctl, snode.kind(), prev_is_mvar)
+            get_kind_pred(ctl, snode.kinds(), prev_is_mvar)
         } else {
-            let skind = snode.kind();
+            let skind = snode.kinds();
             let mut rev_iter = snode.children.iter().rev().peekable();
             let mut snode = rev_iter.next().unwrap();
             let prev_node = rev_iter.peek().unwrap();
@@ -193,10 +193,11 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             panic!("Should not be as of now, other than AND")
         }
     }
+    // *ctl
 }
 
 pub fn make_ctl(
-   _patch: &Patch,
+    _patch: &Patch,
 ) -> GenericCtl<
     <Predicate as Pred>::ty,
     <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
