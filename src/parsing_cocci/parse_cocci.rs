@@ -257,7 +257,7 @@ impl Patch {
     // }
 
     pub fn tag_plus(&mut self) {
-        fn tagplus_aux(node1: &mut Snode, node2: &Snode) {
+        fn tagplus_aux(achildren1: Vec<&mut Snode>, bchildren1: Vec<&mut Snode>) -> Vec<Snode> {
             //There is no need to propagate pluses
             //because a plus cannot exist without code around it
             //when a '+' mod is written an ast is pushed at that
@@ -441,14 +441,6 @@ fn _getdep(_rules: &Vec<Rule>, _lino: usize, _dep: &mut Snode) -> Dep {
     // //     _ => syntaxerror!(lino, "malformed Rule", dep.getstring()),
     // }
     todo!()
-}
-
-fn get_blxpr(contents: &str) -> Snode {
-    wrap_root(contents).unwrap()
-        .children
-        .swap_remove(0) //Fn
-        .children
-        .swap_remove(4) //BlockExpr
 }
 
 // fn get_expr(contents: &str) -> Snode {

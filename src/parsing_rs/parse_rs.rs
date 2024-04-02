@@ -205,11 +205,12 @@ pub fn processrs(contents: &str) -> Result<Rcode, String> {
             wrapped, node, //Change this to SyntaxElement
             kinds, children,
         );
-        if rnode.kind() == SyntaxKind::EXPR_STMT && rnode.children.len() == 1 {
-            rnode.children.remove(0)
-        } else {
-            rnode
-        }
+        // if rnode.kind() == SyntaxKind::EXPR_STMT && rnode.children.len() == 1 {
+        //     rnode.children.remove(0)
+        // } else {
+        //     rnode
+        // }
+        rnode
     };
 
     let rnode = work_node(wrap_node, SyntaxElement::Node(root));

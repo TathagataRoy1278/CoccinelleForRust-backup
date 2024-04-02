@@ -57,8 +57,7 @@ impl<'a> Snode {
         fn aux<'c>(snode: &'c mut Snode) -> Vec<&'c mut Snode> {
             if snode.children.is_empty() || !snode.wrapper.metavar.isnotmeta() {
                 return vec![snode];
-            }
-            else {
+            } else {
                 snode.children.iter_mut().flat_map(|x| aux(x)).collect_vec()
             }
         }
@@ -871,12 +870,8 @@ pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
         // when someone actually makes this mistake and param is not a metavar
         // Have to find a more elegant solution to this
 
-            if error.to_string().contains("missing type for function parameter") {
-                break;
-            }
-            eprintln!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
-            eprintln!("{}", parse.syntax_node().to_string());
-            exit(1);
+        if error.to_string().contains("missing type for function parameter") {
+            break;
         }
         println!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
         println!("{}", parse.syntax_node().to_string());
@@ -924,5 +919,5 @@ pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
         snode
     };
     let snode = work_node(&lindex, wrap_node, SyntaxElement::Node(root), None);
-    snode
+    Ok(snode)
 }
