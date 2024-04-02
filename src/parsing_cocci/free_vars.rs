@@ -39,7 +39,7 @@ fn collect_unitary_nonunitary(free_usage: &Vec<MetaVar>) -> (HashSet<MetaVar>, H
 
 fn collect_refs(root: &Snode, add: &mut dyn FnMut(MetaVar)) {
     let mut work = |node: &Snode| {
-        if node.kinds().contains(&Tag::NAME_REF) {
+        if node.has_kind(&Tag::NAME_REF) {
             match &node.wrapper.metavar {
                 MetaVar::NoMeta => {}
                 mv => add(mv.clone()),

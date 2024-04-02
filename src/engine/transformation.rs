@@ -10,7 +10,7 @@ use itertools::Itertools;
 use crate::{
     commons::{
         info::ParseError,
-        util::{show_cfg, workrnode},
+        util::{show_cfg, show_ctl_graph, workrnode},
     },
     ctl::ctl_ast::{GenericSubst, GenericWitnessTree},
     debugcocci,
@@ -161,7 +161,7 @@ pub fn getfiltered(
     return toret;
 }
 
-pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode) -> Result<Rcode, ParseError> {
+pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode, debug: bool) -> Result<Rcode, ParseError> {
     let mut transformed_code = rnodes;
 
     let savedbindings: Vec<Vec<MetavarBinding>> = vec![vec![]];
@@ -173,7 +173,7 @@ pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode) -> Result<Rcode, ParseE
         let flows = asts_to_flow(&rnodes);
         let mut forests = vec![];
         flows.iter().for_each(|flow| {
-            let triples = processctl(&rule.ctl, &flow, &vec![]);
+            let triples = processctl(&rule.ctl, &flow, &vec![], debug);
             let forest = triples.into_iter().map(|(_, _, tree)| tree).collect_vec();
             forests.push(forest);
         });
@@ -201,6 +201,9 @@ pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode) -> Result<Rcode, ParseE
         //transformations it also deals with the character positions properly,
         //updating them in the new code for the minuses to work
         //removes unneeded and duplicate bindings
+        if debug {
+            show_ctl_graph()
+        }
     }
     return Ok(transformed_code);
 }
@@ -231,7 +234,7 @@ pub fn transformfile(
         rules.iter().for_each(|rule| eprintln!("{}", rule.ctl));
     }
 
-    return transformrnodes(rules, transformedcode);
+    return transformrnodes(rules, transformedcode, args.verbose_ctl_engine);
 }
 
 // fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {

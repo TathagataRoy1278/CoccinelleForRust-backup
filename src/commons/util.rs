@@ -7,11 +7,10 @@ use ra_parser::SyntaxKind;
 use rand::random;
 
 use crate::{
-    parsing_cocci::ast0::{Mcodekind, Snode},
-    parsing_rs::{
+    ctl::ctl_engine::ENGINE_DOT_FILE, parsing_cocci::ast0::{Mcodekind, Snode}, parsing_rs::{
         ast_rs::{Rcode, Rnode},
         control_flow::Rflow,
-    },
+    }
 };
 
 use regex::Regex;
@@ -514,6 +513,25 @@ pub fn show_cfg(flow: &Rflow) {
     let fname_jpg = format!("/tmp/.cfg{}.jpg", ra);
 
     make_graphviz(flow, &fname_dot);
+
+    Command::new("dot")
+        .arg("-Tjpg")
+        .arg("-o")
+        .arg(&fname_jpg)
+        .arg(&fname_dot)
+        .status()
+        .expect("Could not run dot");
+
+    Command::new("xdg-open").arg(&fname_jpg).spawn().expect("Could not run image-viewer.");
+
+    // let _ = fs::remove_file(fname_dot);
+    // let _ = fs::remove_file(fname_jpg);
+}
+
+pub fn show_ctl_graph() {
+    let ra: usize = random();
+    let fname_dot = ENGINE_DOT_FILE;
+    let fname_jpg = format!("/tmp/.enginedot{}.jpg", ra);
 
     Command::new("dot")
         .arg("-Tjpg")

@@ -28,9 +28,7 @@ static pSATLEBEL_MEMO_OPT: bool = true;
 static pREQUIRED_ENV_OPT: bool = true;
 static pUNCHECKED_OPT: bool = true;
 static pREQUIRED_STATES_OPT: bool = true;
-static ENGINE_DOT_FILE: &'static str = "/tmp/.engine.dot";
-
-static DEBUG_ENGINE: bool = cfg!(feature = "verbose-ctl-engine");
+pub static ENGINE_DOT_FILE: &'static str = "/tmp/.engine.dot";
 
 struct FlagCtl {
     pub PARTIAL_MATCH: bool,
@@ -107,8 +105,9 @@ fn annot<A: Graph, B: Subs, C: Pred, D>(
     ctl_term: String,
     res: &TripleList<A, B, C>,
     dl: Vec<usize>,
+    debug: bool,
 ) -> usize {
-    if !DEBUG_ENGINE {
+    if !debug {
         return 0;
     }
 
@@ -146,6 +145,7 @@ pub(crate) struct CTL_ENGINE<'a, G: Graph, S: Subs, P: Pred> {
     memo_label: HashMap<P::ty, Vec<(G::Node, SubstitutionList<S>)>>,
     cfg: &'a G::Cfg,
     has_loop: bool,
+    debug: bool,
     ctl_flags: FlagCtl,
     _b: PhantomData<S>,
     _c: PhantomData<P>,
@@ -285,12 +285,13 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P>
 where
     <G as Graph>::Cfg: 'a,
 {
-    pub fn new(flow: &G::Cfg) -> CTL_ENGINE<G, S, P> {
+    pub fn new(flow: &G::Cfg, debug: bool) -> CTL_ENGINE<G, S, P> {
         CTL_ENGINE {
             cfg: flow,
             reachable_table: HashMap::new(),
             memo_label: HashMap::new(),
             has_loop: false,
+            debug: debug,
             ctl_flags: FlagCtl::new(),
             _b: PhantomData::default(),
             _c: PhantomData::default(),
@@ -1779,6 +1780,7 @@ where
             // &GenericCtl<P::ty, S::Mvar, Vec<string>>,
             &TripleList<G, S, P>,
             Vec<D>,
+            bool,
         ) -> D,
         maxlvl: isize,
         lvl: isize,
@@ -1831,11 +1833,12 @@ where
         //         env
         //     )
         // };
+        let debug = self.debug;
 
         let anno = |ctl_term: String,
                     res: Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>,
                     children| {
-            if DEBUG_ENGINE {
+            if debug {
                 eprint!(
                     "{} -> \x1b[93m{:?}\x1b[0m. Wits - ",
                     ctl_term,
@@ -1844,7 +1847,7 @@ where
                 eprintln!("{:?}\n", res.clone().into_iter().map(|x| x).collect_vec());
             }
 
-            (annot(ctl_term, &res, children), res)
+            (annot(ctl_term, &res, children, debug), res)
         };
 
         if lvl > maxlvl && maxlvl > -1 {
@@ -2023,6 +2026,7 @@ where
                 GenericCtl::AX(dir, strict, phi1) => {
                     let new_required_states =
                         self.get_children_required_states(&dir, m, &required_states);
+                    // eprintln!("Required States - {:?}", new_required_states);
                     let (child, res) = satv!(unchecked, &required, &new_required_states, phi1, env);
                     let res = self.strict_a1(
                         *strict,
@@ -2259,7 +2263,7 @@ where
         fs::write(ENGINE_DOT_FILE, "").expect("Cannot write engine debug file");
         let mut file = OpenOptions::new().write(true).append(true).open(ENGINE_DOT_FILE).unwrap();
 
-        if DEBUG_ENGINE {
+        if self.debug {
             writeln!(file, "digraph L {{\n").expect("Could not write to engine debug file");
         }
 
@@ -2275,7 +2279,7 @@ where
             &vec![],
         );
 
-        if DEBUG_ENGINE {
+        if self.debug {
             writeln!(file, "}}").expect("Could not write to engine debug file");
         }
 

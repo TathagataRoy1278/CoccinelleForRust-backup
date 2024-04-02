@@ -25,6 +25,7 @@ pub enum BoundValue {
     Label(usize),
 }
 
+
 type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, BoundValue>;
 
 impl Debug for BoundValue {
@@ -185,6 +186,7 @@ pub enum Predicate {
     Kind(Vec<SyntaxKind>, bool),
     Paren(MetavarName, bool),
     Label(MetavarName, bool),
+    AfterNode
 }
 
 impl Display for Predicate {
@@ -207,6 +209,7 @@ impl Display for Predicate {
             }
             Predicate::Paren(mvar, _) => write!(f, "Paren({})", mvar),
             Predicate::Label(mvar, _) => write!(f, "Label({})", mvar),
+            Predicate::AfterNode => write!(f, "After")
         }
     }
 }
@@ -218,6 +221,7 @@ impl Predicate {
             | Predicate::Kind(_, pm)
             | Predicate::Paren(_, pm)
             | Predicate::Label(_, pm) => *pm = true,
+            Predicate::AfterNode => {}
         }
     }
 
@@ -227,6 +231,7 @@ impl Predicate {
             Predicate::Kind(_, _) => {}
             Predicate::Paren(_, _) => {}
             Predicate::Label(_, _) => {}
+            Predicate::AfterNode => {}
         }
     }
 }
@@ -267,7 +272,7 @@ fn labels_for_ctl<'a>() -> fn(
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
-                        let rnode = flow.node(*node).data().rnode();
+                        let rnode = flow.node(*node).data().rnode().unwrap();
                         let env = match_nodes(snode, rnode, &vec![]);
                         if !env.failed {
                             // eprintln!(
@@ -315,7 +320,7 @@ fn labels_for_ctl<'a>() -> fn(
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
-                        if flow.node(*node).data().rnode().kinds().eq(kinds) {
+                        if flow.node(*node).data().rnode().unwrap().kinds().eq(kinds) {
                             let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
                             prev.push((Node(node.clone(), tet), vec![], vec![]))
                         }
@@ -336,10 +341,24 @@ fn labels_for_ctl<'a>() -> fn(
                 let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
                 let nodei = Node(node.clone(), tet);
                 let label = nodew.label();
-                let subs = GenericSubst::Subst(mvar.clone(), BoundValue::Label(label));
+                let subs = GenericSubst::Subst(mvar.clone(), BoundValue::Label(label.unwrap()));
                 prev.push((nodei, vec![subs], vec![]));
                 prev
             }),
+            Predicate::AfterNode => {
+                flow.nodes().iter().fold(vec![], |mut prev, nodei| {
+                    match flow.node(*nodei).data() {
+                        crate::parsing_rs::control_flow::Node::StartNode => {},
+                        crate::parsing_rs::control_flow::Node::AfterNode => {
+                            let node = Node(nodei.clone(), EdgeType::Default);
+                            prev.push((node, vec![], vec![]));
+                        },
+                        crate::parsing_rs::control_flow::Node::RnodeW(_) => {},
+                        crate::parsing_rs::control_flow::Node::EndNode => {},
+                    }
+                    prev
+                })
+            },
         }
     }
 
@@ -489,8 +508,9 @@ pub fn processctl<'a>(
     >,
     flow: &'a Rflow<'a>,
     bindings: &'a Vec<MetavarBinding>,
+    debug: bool
 ) -> TripleList<Rflow<'a>, Substitution, Predicate> {
-    let mut engine = CTL_ENGINE::<Rflow<'a>, Substitution, Predicate>::new(flow);
+    let mut engine = CTL_ENGINE::<Rflow<'a>, Substitution, Predicate>::new(flow, debug);
     let model = &model_for_ctl(flow, bindings);
     let tmp = engine.sat(model, ctl, vec![]);
     return tmp;

@@ -16,4 +16,8 @@
     complete cfg
     inherited vars
     formatting
-    
+
+    dealing with
+   ...
+   k
+   ... 

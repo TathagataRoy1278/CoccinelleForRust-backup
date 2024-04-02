@@ -1,14 +1,9 @@
-@rule1 type@
-identifier i;
+@ rule1 @
+expression x, y, z, vd, l;
+identifier i, j, k;
 @@
 
--i<'gcx, 'tcx>
-+i<'tcx>
-
-
-@type@
-identifier i;
-expression s;
-@@
--i<'tcx, 'tcx>
-+i<'tcx>
+- let mut v = vec![];
+- for i in x { 
+-   v.push(z);
+- }

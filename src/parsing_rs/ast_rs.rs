@@ -335,7 +335,7 @@ impl<'a> Rnode {
     }
 
     pub fn islifetime(&self) -> bool {
-        return self.kinds().contains(&LIFETIME_ARG);
+        return self.has_kind(&LIFETIME_ARG);
     }
 
     pub fn isitem(&self) -> bool {

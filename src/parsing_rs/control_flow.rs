@@ -26,44 +26,51 @@ use std::fmt::Debug;
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Node<'a> {
     StartNode,
+    AfterNode,
     RnodeW(NodeWrap<'a>),
     EndNode,
 }
 
 impl<'a> Node<'a> {
-    pub fn rnode(&self) -> &'a Rnode {
+    pub fn rnode(&self) -> Option<&'a Rnode> {
         match self {
-            Node::StartNode => panic!("Shouldnt be called"),
-            Node::RnodeW(nodew) => return nodew.rnode,
-            Node::EndNode => panic!("Shouldnt be called"),
+            Node::StartNode => None,
+            Node::AfterNode => None,
+            Node::RnodeW(nodew) => return Some(nodew.rnode),
+            Node::EndNode => None,
         }
     }
 
-    pub fn label(&self) -> usize {
+    pub fn label(&self) -> Option<usize> {
         match self {
-            Node::StartNode => panic!("Shouldnt be called"),
-            Node::RnodeW(nodew) => return nodew.info.labels,
-            Node::EndNode => panic!("Shouldnt be called"),
+            Node::StartNode => None,
+            Node::AfterNode => None,
+            Node::RnodeW(nodew) => return Some(nodew.info.labels),
+            Node::EndNode => None,
         }
     }
 
     pub fn is_dummy(&self) -> bool {
         match self {
             Node::StartNode => true,
+            Node::AfterNode => true,
             Node::RnodeW(_) => false,
             Node::EndNode => true,
         }
     }
 
     pub fn getstring(&self) -> String {
-        if self.is_dummy() {
-            return String::from("Dummy;");
-        } else {
-            if self.rnode().children.is_empty() {
-                format!("{}", self.rnode().getstring())
-            } else {
-                format!("{:?}", self.rnode().kinds())
-            }
+        match self {
+            Node::StartNode => String::from("Start"),
+            Node::AfterNode => String::from("After"),
+            Node::RnodeW(nodew) => {
+                if nodew.rnode.children.is_empty() {
+                    format!("{}", nodew.rnode.getstring())
+                } else {
+                    format!("{:?}", nodew.rnode.kinds())
+                }
+            },
+            Node::EndNode => String::from("End"),
         }
     }
 }
@@ -116,7 +123,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
             (children, false)
         } else {
             //always first element has to be the attribute
-            if children[0].kinds().contains(&SyntaxKind::ATTR) {
+            if children[0].has_kind(&SyntaxKind::ATTR) {
                 return (&children[1..], true);
             } else {
                 return (children, false);
@@ -129,7 +136,8 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
         graph: &'b mut Graph<Node<'a>>,
         rnodes: &'a Vec<Rnode>,
         label: usize,
-        splits: &[usize],
+        splits: &[usize],//the branch is split into two at each
+                         //index in splits
     ) -> (Vec<NodeIndex>, Vec<NodeIndex>) {
         //One for Default, one for Siblings
         let mut prev_sib: Option<NodeIndex> = None;
@@ -153,13 +161,17 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                 None => break,
             };
 
+            //Node created and added to graph
             let node = make_node(label, rnode);
             let ind = graph.add_node(node);
+
+            // EDGES BEING CREATES
+            //creates defalut edge between the previous nodes and the current
             prev_inds.iter().for_each(|pind| {
                 graph.add_edge(*pind, ind, EdgeType::Default);
             });
 
-            //creates edge between the current node and the previous node
+            //creates sibling edge between the current node and the previous sibling node
             if let Some(prev_sib) = prev_sib {
                 graph.add_edge(prev_sib, ind, EdgeType::Sibling);
             }
@@ -170,17 +182,22 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
             });
 
             use ra_parser::SyntaxKind as Tag;
-            let (inds, pindst) = match rnode.kinds().as_slice() {
-                [Tag::IF_EXPR] => {
+
+            //StmtList
+
+
+            //Branching
+            //inds = last processed node from inside make_graph
+            //pindst = last processed nodes with no siblings
+            let (inds, pindst) = match rnode.kinds().last().unwrap() {
+                Tag::IF_EXPR => {
                     let (children, hasattr) = rem_attr(rnode.children.as_slice());
                     let hasattr: usize = if hasattr { 1 } else { 0 };
                     match children {
-                        [ifkw, _cond, _thenn] if ifkw.kinds().contains(&Tag::IF_KW) => {
+                        [ifkw, _cond, _thenn] if ifkw.has_kind(&Tag::IF_KW) => {
                             make_graph(&[ind], graph, &rnode.children, label, &[])
                         }
-                        [ifkw, _cond, _thenn, _elsekw, _elsebr]
-                            if ifkw.kinds().contains(&Tag::IF_KW) =>
-                        {
+                        [ifkw, _cond, _thenn, _elsekw, _elsebr] if ifkw.has_kind(&Tag::IF_KW) => {
                             make_graph(&[ind], graph, &rnode.children, label, &[hasattr + 2])
                         }
                         _ => {
@@ -188,16 +205,37 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                         }
                     }
                 }
+                Tag::STMT_LIST => {
+                    let children = &rnode.children;
+                    let (is, ps) = make_graph(&[ind], graph, children, label, &[]);
+                    
+                    assert_eq!(is.len(), 1);//the last node is the }
+                    let rc = is.last().unwrap();
+                    let lc = graph.successors(ind)[0];//only one because stmt list always has { as starting
+                    
+                    let after = Node::AfterNode;
+                    let afi = graph.add_node(after);
+                    graph.add_edge(lc, afi, EdgeType::Default);
+                    graph.add_edge(afi, *rc, EdgeType::Default);
+
+                    (is, ps)
+                }
                 _ => make_graph(&[ind], graph, &rnode.children, label, &[]),
             };
             psibs = pindst;
 
+
             if splits.contains(&ctr) {
+
+                //inds is empty when ind has no children
                 if inds.is_empty() {
                     ends.push(ind);
                 } else {
                     ends.extend(inds);
                 }
+
+                //prev inds remains the same to connect
+                //to the next branch
             } else {
                 if inds.is_empty() {
                     prev_inds = vec![ind];

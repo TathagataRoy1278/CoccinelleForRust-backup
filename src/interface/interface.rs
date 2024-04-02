@@ -59,4 +59,7 @@ pub struct CoccinelleForRust {
 
     #[arg(long)]
     pub show_ctl: bool,
+
+    #[arg(long)]
+    pub verbose_ctl_engine: bool
 }

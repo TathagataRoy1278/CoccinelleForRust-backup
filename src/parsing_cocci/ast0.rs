@@ -309,11 +309,19 @@ impl MetavarName {
     pub fn is_v(&self) -> bool {
         self.rulename == "NONE" && self.varname == "_v"
     }
+
+    pub fn new(name: String) -> MetavarName {
+        MetavarName { rulename: String::new(), varname: name }
+    }
 }
 
 impl Display for MetavarName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", format!("{}.{}", self.rulename, self.varname))
+        if self.rulename.is_empty() {
+            write!(f, "{}", self.varname)
+        } else {
+            write!(f, "{}.{}", self.rulename, self.varname)
+        }
     }
 }
 

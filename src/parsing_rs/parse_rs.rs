@@ -187,7 +187,7 @@ pub fn processrs(contents: &str) -> Result<Rcode, String> {
     let root = parse.syntax_node();
 
     let wrap_node = &|node: SyntaxElement, df: &dyn Fn(&SyntaxElement) -> Vec<Rnode>| -> Rnode {
-        let wrapped = fill_wrap(&lindex, &node);
+        let mut wrapped = fill_wrap(&lindex, &node);
         let mut children = df(&node);
         let mut kinds = vec![node.kind()];
         let mut node = if children.len() == 0 { Some(node) } else { None };
@@ -198,6 +198,7 @@ pub fn processrs(contents: &str) -> Result<Rcode, String> {
 
             node = child.astnode;
             children = child.children;
+            wrapped.wspaces = child.wrapper.wspaces;
         }
 
         let rnode = Rnode::new(

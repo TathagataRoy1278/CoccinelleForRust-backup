@@ -16,6 +16,12 @@ use super::{
 
 // pub type WrappedCtl<Pred, Mvar> = GenericCtl<(Pred, Modif<Mvar>), Mvar, usize>;
 
+static L_BROS: [SyntaxKind; 4] =
+    [SyntaxKind::L_BRACK, SyntaxKind::L_ANGLE, SyntaxKind::L_CURLY, SyntaxKind::L_PAREN];
+
+static R_BROS: [SyntaxKind; 4] =
+    [SyntaxKind::R_BRACK, SyntaxKind::R_ANGLE, SyntaxKind::R_CURLY, SyntaxKind::R_PAREN];
+
 #[derive(Clone, PartialEq, Eq)]
 pub enum WrappedBinding<Value> {
     ClassicVal(Value),
@@ -35,6 +41,15 @@ type CTL = GenericCtl<
     Vec<String>,
 >;
 
+impl CTL {
+    pub fn add_label(self, name: String) -> Box<Self> {
+        let p = Box::new(CTL::Pred(Predicate::Label(MetavarName::new(name), false)));
+        Box::new(CTL::And(Strict::Strict, Box::new(self), p))
+    }
+}
+
+type Tag = SyntaxKind;
+
 fn dots_has_mv(dots: &Snode) -> bool {
     dots.children[1].wrapper.metavar.ismeta()
 }
@@ -50,10 +65,34 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         Box::new(fctl)
     }
 
-    fn handle_dots(dots: &Snode, attach_end: Option<Box<CTL>>, pim: bool) -> Box<CTL> {
-        let mut a1 = aux(&dots.children[0], None, false);
-        let mut b1 = aux(&dots.children[1], None, false);
-        let b2 = aux(&dots.children[1], attach_end, false);
+    fn handle_dots(
+        dots: &Snode,
+        attach_end: Option<Box<CTL>>,
+        pim: bool,
+        ln: &mut usize,
+    ) -> Box<CTL> {
+        if dots.children[0].has_kind(&Tag::L_CURLY) && dots.children[1].has_kind(&Tag::R_CURLY) {
+            let a2 = aux(&dots.children[1], attach_end, false, ln); // }
+            let tmp = Box::new(CTL::And(
+                Strict::Strict,
+                Box::new(CTL::Pred(Predicate::AfterNode)),
+                Box::new(CTL::AX(Direction::Forward, Strict::Strict, a2)),
+            )); // After & AX(})
+            let tmp = Box::new(CTL::EX(Direction::Forward, tmp)); // Ex (After & AX (}))
+                                                                  // eprintln!("ln - {}", ln);
+            let a1 = aux(&dots.children[0], None, pim, ln);
+            // eprintln!("ln2 - {}", ln);
+            let a1 = Box::new(CTL::And(Strict::Strict, a1, tmp));
+            return Box::new(CTL::Exists(false, MetavarName::new(format!("l{}", (*ln + 1))), a1));
+        }
+
+        let s1 = &dots.children[0];
+        let s2 = &dots.children[1];
+
+        let mut a1 = aux(s1, None, false, &mut (ln.clone()));
+
+        let mut b1 = aux(s2, None, false, &mut (ln.clone()));
+        let b2 = aux(s2, attach_end, false, ln);
 
         let mut f = |ctl: &mut CTL| match ctl {
             CTL::Pred(p) => p.set_unmodif(),
@@ -66,13 +105,8 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
         let tmp1 = CTL::Not(Box::new(CTL::Or(a1, b1)));
         let tmp2 = CTL::AU(Direction::Forward, Strict::Strict, Box::new(tmp1), b2);
-        // let res = CTL::And(
-        //     Strict::Strict,
-        //     a2,
-        //     Box::new(CTL::AX(Direction::Forward, Strict::Strict, Box::new(tmp2))),
-        // );
 
-        aux(&dots.children[0], Some(Box::new(tmp2)), pim)
+        aux(&dots.children[0], Some(Box::new(tmp2)), pim, ln)
     }
 
     fn set_pm_true(ctl: &mut Box<CTL>) {
@@ -106,7 +140,12 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         }
     }
 
-    fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool) -> Box<CTL> {
+    fn aux(
+        snode: &Snode,
+        attach_end: Option<Box<CTL>>,
+        prev_is_mvar: bool,
+        ln: &mut usize,
+    ) -> Box<CTL> {
         if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
             if !snode.is_dots {
                 //Sets the modif
@@ -121,12 +160,28 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 };
 
                 //adds the _v for modifs
-                let tmpp = if snode.wrapper.is_modded {
+                let mut tmpp = if snode.wrapper.is_modded {
                     //is minused or has pluses attached to it
                     Box::new(CTL::Exists(true, MetavarName::create_v(), tmpp))
                 } else {
                     tmpp
                 };
+
+                {
+                    //if the node is one of the braces, add a label to it
+                    let kind = snode.kinds().last().unwrap();
+                    let lname;
+                    if L_BROS.contains(kind) {
+                        lname = format!("l{}", ln);
+                        *ln -= 1;
+                        tmpp = (*tmpp).add_label(lname);
+                    } else if R_BROS.contains(kind) {
+                        //Rs
+                        *ln += 1;
+                        lname = format!("l{}", ln);
+                        tmpp = (*tmpp).add_label(lname);
+                    };
+                }
 
                 //propagates
                 let nextctl = if let Some(mut attach_end) = attach_end {
@@ -134,14 +189,44 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                         set_pm_true(&mut attach_end);
                     }
 
-                    Box::new(CTL::And(
-                        Strict::Strict,
-                        tmpp,
-                        Box::new(CTL::AX(Direction::Forward, Strict::Strict, attach_end)),
-                    ))
+                    //If the node is one of { ( [ <
+                    if snode.kinds().iter().any(|x| L_BROS.contains(x)) {
+                        //if there is a { then there also exists an AfterNode
+                        //this also adds the OR AfterNode condition for all
+                        //left braces other than { but that should not be a problem right?
+                        //Since AfterNodes only appear for {s
+                        let nextctl = Box::new(CTL::And(
+                            Strict::Strict,
+                            tmpp,
+                            Box::new(CTL::AX(
+                                Direction::Forward,
+                                Strict::Strict,
+                                Box::new(CTL::Or(
+                                    attach_end,
+                                    Box::new(CTL::Pred(Predicate::AfterNode)),
+                                )),
+                            )),
+                        ));
+
+                        Box::new(CTL::Exists(
+                            false,
+                            MetavarName::new(format!("l{}", *ln + 1)),
+                            nextctl,
+                        ))
+                    } else {
+                        let nextctl = Box::new(CTL::And(
+                            Strict::Strict,
+                            tmpp,
+                            Box::new(CTL::AX(Direction::Forward, Strict::Strict, attach_end)),
+                        ));
+
+                        nextctl
+                    }
                 } else {
                     tmpp
                 };
+
+                //if there was a lparan this adds the exists lx term
 
                 if snode.wrapper.metavar.ismeta()
                     && snode.wrapper.freevars.contains(&snode.wrapper.metavar)
@@ -151,10 +236,10 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                     nextctl
                 }
             } else {
-                handle_dots(snode, attach_end, prev_is_mvar)
+                handle_dots(snode, attach_end, prev_is_mvar, ln)
             }
         } else if snode.children.len() == 1 {
-            let ctl = aux(&snode.children[0], attach_end, false);
+            let ctl = aux(&snode.children[0], attach_end, false, ln);
             get_kind_pred(ctl, snode.kinds(), prev_is_mvar)
         } else {
             let skind = snode.kinds();
@@ -168,7 +253,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
             let mut spb = prev_node.wrapper.metavar.ismeta()
                 || (prev_node.is_dots && dots_has_mv(&prev_node));
-            let mut ctl = aux(snode, attach_end, spb);
+            let mut ctl = aux(snode, attach_end, spb, ln);
             // let mut spb: bool;
 
             while rev_iter.len() != 0 {
@@ -177,13 +262,13 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
                 snode = rev_iter.next().unwrap();
                 spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
-                ctl = aux(snode, Some(ctl), spb);
+                ctl = aux(snode, Some(ctl), spb, ln);
             }
             get_kind_pred(ctl, skind, prev_is_mvar)
         }
     }
 
-    let ctl = aux(snode, None, false);
+    let ctl = aux(snode, None, false, &mut 0);
     match *ctl {
         CTL::And(_, _, b) => match *b {
             CTL::AX(_, _, b) => *b,

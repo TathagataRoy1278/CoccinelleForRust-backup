@@ -4,6 +4,8 @@ use std::{
     marker::PhantomData,
 };
 
+use super::ctl_engine::{Pred, CTL};
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Strict {
     Strict,
