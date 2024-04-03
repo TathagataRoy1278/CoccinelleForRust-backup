@@ -6,6 +6,8 @@ use std::rc::Rc;
 use itertools::Itertools;
 use ra_parser::SyntaxKind;
 
+use crate::commons::info::L_BROS;
+use crate::commons::info::R_BROS;
 use crate::commons::ograph_extended::EdgeType;
 use crate::commons::ograph_extended::{self, NodeIndex};
 use crate::ctl::ctl_ast::{GenericCtl, GenericSubst, Modif};
@@ -22,9 +24,9 @@ use super::cocci_vs_rs::{MetavarBinding, Modifiers};
 pub enum BoundValue {
     Sub(Rc<Rnode>),
     Mod(Snode, Modifiers),
-    Label(usize),
+    Paren(usize),
+    Label(usize)
 }
-
 
 type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, BoundValue>;
 
@@ -34,6 +36,7 @@ impl Debug for BoundValue {
             Self::Sub(arg0) => write!(f, "{}", arg0),
             Self::Mod(_arg0, arg1) => write!(f, "{:?}", arg1),
             Self::Label(l) => write!(f, "Label({})", l),
+            Self::Paren(l) => write!(f, "Paren({})", l), 
         }
     }
 }
@@ -186,7 +189,7 @@ pub enum Predicate {
     Kind(Vec<SyntaxKind>, bool),
     Paren(MetavarName, bool),
     Label(MetavarName, bool),
-    AfterNode
+    AfterNode,
 }
 
 impl Display for Predicate {
@@ -209,7 +212,7 @@ impl Display for Predicate {
             }
             Predicate::Paren(mvar, _) => write!(f, "Paren({})", mvar),
             Predicate::Label(mvar, _) => write!(f, "Label({})", mvar),
-            Predicate::AfterNode => write!(f, "After")
+            Predicate::AfterNode => write!(f, "After"),
         }
     }
 }
@@ -320,7 +323,7 @@ fn labels_for_ctl<'a>() -> fn(
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
-                        if flow.node(*node).data().rnode().unwrap().kinds().eq(kinds) {
+                        if flow.node(*node).data().rnode().unwrap().kinds().ends_with(kinds) {
                             let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
                             prev.push((Node(node.clone(), tet), vec![], vec![]))
                         }
@@ -328,8 +331,27 @@ fn labels_for_ctl<'a>() -> fn(
                     }
                 })
             }
-            Predicate::Paren(_mvar, _pim) => {
-                todo!();
+            Predicate::Paren(mvar, pim) => {
+                flow.nodes().iter().fold(vec![], |mut acc, nodei| {
+                    if flow.node(*nodei).data().is_dummy() {
+                        return acc;
+                    }
+
+                    let node = flow.node(*nodei);
+                    let nodew = node.data();
+                    let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
+
+                    //rnode can be unwrapped because not dummy
+                    //kinds always has atleast one element so it can be unwrapped
+                    let kind = nodew.rnode().unwrap().kinds().last().unwrap();
+                    if L_BROS.contains(kind) || R_BROS.contains(kind) {
+                        let pval: BoundValue = BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
+                        let sub = vec![GenericSubst::Subst(mvar.clone(), pval)];
+                        acc.push((Node(nodei.clone(), tet), sub, vec![]));
+                    };
+                    acc
+                    
+                })
             }
             Predicate::Label(mvar, pim) => flow.nodes().iter().fold(vec![], |mut prev, node| {
                 if flow.node(*node).data().is_dummy() {
@@ -345,20 +367,18 @@ fn labels_for_ctl<'a>() -> fn(
                 prev.push((nodei, vec![subs], vec![]));
                 prev
             }),
-            Predicate::AfterNode => {
-                flow.nodes().iter().fold(vec![], |mut prev, nodei| {
-                    match flow.node(*nodei).data() {
-                        crate::parsing_rs::control_flow::Node::StartNode => {},
-                        crate::parsing_rs::control_flow::Node::AfterNode => {
-                            let node = Node(nodei.clone(), EdgeType::Default);
-                            prev.push((node, vec![], vec![]));
-                        },
-                        crate::parsing_rs::control_flow::Node::RnodeW(_) => {},
-                        crate::parsing_rs::control_flow::Node::EndNode => {},
+            Predicate::AfterNode => flow.nodes().iter().fold(vec![], |mut prev, nodei| {
+                match flow.node(*nodei).data() {
+                    crate::parsing_rs::control_flow::Node::StartNode => {}
+                    crate::parsing_rs::control_flow::Node::AfterNode => {
+                        let node = Node(nodei.clone(), EdgeType::Default);
+                        prev.push((node, vec![], vec![]));
                     }
-                    prev
-                })
-            },
+                    crate::parsing_rs::control_flow::Node::RnodeW(_) => {}
+                    crate::parsing_rs::control_flow::Node::EndNode => {}
+                }
+                prev
+            }),
         }
     }
 
@@ -508,7 +528,7 @@ pub fn processctl<'a>(
     >,
     flow: &'a Rflow<'a>,
     bindings: &'a Vec<MetavarBinding>,
-    debug: bool
+    debug: bool,
 ) -> TripleList<Rflow<'a>, Substitution, Predicate> {
     let mut engine = CTL_ENGINE::<Rflow<'a>, Substitution, Predicate>::new(flow, debug);
     let model = &model_for_ctl(flow, bindings);

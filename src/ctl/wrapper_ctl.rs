@@ -1,6 +1,7 @@
 use ra_parser::SyntaxKind;
 
 use crate::{
+    commons::info::{L_BROS, R_BROS},
     ctl::ctl_ast::{Direction, Strict},
     engine::ctl_cocci::{BoundValue, Predicate},
     parsing_cocci::{
@@ -15,12 +16,6 @@ use super::{
 };
 
 // pub type WrappedCtl<Pred, Mvar> = GenericCtl<(Pred, Modif<Mvar>), Mvar, usize>;
-
-static L_BROS: [SyntaxKind; 4] =
-    [SyntaxKind::L_BRACK, SyntaxKind::L_ANGLE, SyntaxKind::L_CURLY, SyntaxKind::L_PAREN];
-
-static R_BROS: [SyntaxKind; 4] =
-    [SyntaxKind::R_BRACK, SyntaxKind::R_ANGLE, SyntaxKind::R_CURLY, SyntaxKind::R_PAREN];
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum WrappedBinding<Value> {
@@ -42,8 +37,8 @@ type CTL = GenericCtl<
 >;
 
 impl CTL {
-    pub fn add_label(self, name: String) -> Box<Self> {
-        let p = Box::new(CTL::Pred(Predicate::Label(MetavarName::new(name), false)));
+    pub fn add_paren(self, name: String) -> Box<Self> {
+        let p = Box::new(CTL::Pred(Predicate::Paren(MetavarName::new(name), false)));
         Box::new(CTL::And(Strict::Strict, Box::new(self), p))
     }
 }
@@ -174,12 +169,12 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                     if L_BROS.contains(kind) {
                         lname = format!("l{}", ln);
                         *ln -= 1;
-                        tmpp = (*tmpp).add_label(lname);
+                        tmpp = (*tmpp).add_paren(lname);
                     } else if R_BROS.contains(kind) {
                         //Rs
                         *ln += 1;
                         lname = format!("l{}", ln);
-                        tmpp = (*tmpp).add_label(lname);
+                        tmpp = (*tmpp).add_paren(lname);
                     };
                 }
 

@@ -338,7 +338,12 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                     env.modifiers.add_modifs(modif.clone());
                                 });
                             }
-                            BoundValue::Label(_label) => {}
+                            BoundValue::Label(_label) => {
+                                panic!("Should not come here")
+                            }
+                            BoundValue::Paren(_) => {
+                                panic!("Should not come here")
+                            },
                         },
                         GenericSubst::NegSubst(_, _) => {}
                     }

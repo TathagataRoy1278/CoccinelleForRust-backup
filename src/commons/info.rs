@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
+use ra_parser::SyntaxKind;
+
 #[derive(Clone, PartialEq)]
 pub struct PositionInfo {
     pub line_start: usize,
@@ -102,3 +104,10 @@ pub const WILDCARD_NAME: &str = "COCCI_DOT_DOT_DOTS";
 pub const WILDCARD: &str = "COCCI_DOT_DOT_DOTS![];";
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Unknown;
+
+
+pub static L_BROS: [SyntaxKind; 4] =
+    [SyntaxKind::L_BRACK, SyntaxKind::L_ANGLE, SyntaxKind::L_CURLY, SyntaxKind::L_PAREN];
+
+pub static R_BROS: [SyntaxKind; 4] =
+    [SyntaxKind::R_BRACK, SyntaxKind::R_ANGLE, SyntaxKind::R_CURLY, SyntaxKind::R_PAREN];

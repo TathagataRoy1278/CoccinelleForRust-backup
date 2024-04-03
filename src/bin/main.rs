@@ -461,6 +461,7 @@ fn _transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                 cenv.modifiers.add_modifs(modif.clone());
                             }
                             BoundValue::Label(_) => {}
+                            BoundValue::Paren(_) => todo!(),
                         },
                         GenericSubst::NegSubst(_, _) => panic!(),
                     }
