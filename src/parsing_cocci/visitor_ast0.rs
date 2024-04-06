@@ -84,7 +84,11 @@ pub fn work_node<'a>(
                                     Some(String::from(child.to_string().as_bytes()[2] as char));
                                 //in the next iteration the node gets the modkind
                             } else if child.to_string().eq(WILDCARD) {
-                                let wc = Snode::make_wildcard();
+                                let mut wc = Snode::make_wildcard(super::ast0::Mcodekind::Context(
+                                    vec![],
+                                    vec![],
+                                )); //the mcode here is just a dummy
+                                wc.wrapper.setmodkind(modkind.unwrap_or(String::new()));
                                 children.push(wc);
                                 modkind = None;
                             }

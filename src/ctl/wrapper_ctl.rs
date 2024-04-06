@@ -81,16 +81,24 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             return Box::new(CTL::Exists(false, MetavarName::new(format!("l{}", (*ln + 1))), a1));
         }
 
+        //Everything in the comments assume a...b
+
+        //a
         let s1 = &dots.children[0];
+        //b
         let s2 = &dots.children[1];
 
+        //checks is a itsels is dots
+        //(a1...a2)...b
         let mut a1 = if s1.is_dots {
             aux(&s1.children[1], None, false, &mut (ln.clone()))
         } else {
             aux(s1, None, false, &mut (ln.clone()))
         };
 
+        //b for !(a V b)
         let mut b1 = aux(s2, None, false, &mut (ln.clone()));
+        //b for A[!(...) U b]
         let b2 = aux(s2, attach_end, false, ln);
 
         let mut f = |ctl: &mut CTL| match ctl {
@@ -99,12 +107,23 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             _ => {}
         };
 
+        //removes any mods from a and b in
+        // !(a v b)
         CTL::do_ctl(&mut b1, &mut f);
         CTL::do_ctl(&mut a1, &mut f);
 
-        let tmp1 = CTL::Not(Box::new(CTL::Or(a1, b1)));
+        //creates the !(a v b)
+        let tmp1 = if dots.wrapper.mcodekind.is_minus() {
+            //This is to be done after the Triples are stored to the heap
+            todo!()
+        } else {
+            CTL::Not(Box::new(CTL::Or(a1, b1)))
+        };
+
+        //makes the A[U]
         let tmp2 = CTL::AU(Direction::Forward, Strict::Strict, Box::new(tmp1), b2);
 
+        //depending on it being a...b or (a1...a2)...b it proceeds
         if s1.is_dots {
             handle_dots(&s1, Some(Box::new(tmp2)), pim, ln)
         } else {

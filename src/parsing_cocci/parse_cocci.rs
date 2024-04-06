@@ -498,211 +498,6 @@ fn handlerules(_rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, 
     (currrulename, depends, hastype || istype)
 }
 
-fn _group_dots_old(snode: &Snode) -> Snode {
-    if snode.is_dots {
-        panic!("Should not occur");
-    }
-
-    let mut children = vec![];
-    let mut snode = snode.clone();
-
-    let mut iter = snode.children.iter().peekable();
-    loop {
-        if let Some(child) = iter.next() {
-            if let Some(dots) = iter.peek() {
-                if dots.is_dots {
-                    let pluses = dots.get_pluses();
-                    let _dots = iter.next().unwrap();
-                    let nnode = iter.next().unwrap(); //dots is always followed by another node(as of now)
-                    let mut a = group_dots(child);
-                    let mut b = group_dots(nnode);
-
-                    attach_pluses_back(&mut a, pluses.0);
-                    attach_pluses_front(&mut b, pluses.1);
-
-                    let mut node = Snode::make_wildcard();
-                    node.children = vec![a, b];
-
-                    children.push(node);
-                } else {
-                    children.push(group_dots(child));
-                }
-            } else {
-                children.push(group_dots(child));
-            }
-        } else {
-            break;
-        }
-    }
-
-    snode.children = children;
-
-    return snode;
-}
-
-// fn group_dotss(snode: &Snode) -> Snode {
-//     if snode.children.is_empty() {
-//         return snode.clone();
-//     }
-
-//     let mut rchildren = snode.children.iter().rev();
-//     let mut nchidlren: Vec<Snode> = vec![];
-//     let mut prev = Some(rchildren.next().unwrap());//unwrap because the list is not empty
-//     let mut prev_dot: Option<Snode> = if prev.as_ref().unwrap().is_dots {
-//         let dot = Snode::make_wildcard();
-//         dot.children = vec![Snode::make_fake()];
-//         Some(dot)
-//     } else {
-//         nchidlren.push(*prev.as_ref().unwrap().clone());
-//         None
-//     };
-
-//     for child in rchildren {
-//         if prev_dot.is_some() {
-//             let mut dot = prev_dot.unwrap();
-//             if dot.children.len() == 1 {
-//                 //child cannot be dot because two dots cannot be after
-//                 //one another
-//                 dot.children.insert(0, child.clone());
-//                 prev = None;
-//                 prev_dot = None;
-//             }
-//             else if dot.children.len() == 2 { }
-//             else {
-//                 panic!("Somethinge weird is happening, dots should have only 2 children.")
-//             }
-//         }
-//         else {
-//             if child.is_dots {
-//                 let mut dnode = Snode::make_wildcard();
-//                 dnode.children = 
-//                     if prev_dot.is_none() {
-//                         vec![prev.unwrap().clone()]
-//                     }
-//                     else {
-//                         vec![prev_dot.unwrap()]
-//                     };
-//                 nchidlren.push(dnode);
-//                 prev_dot = Some(nchidlren.last().as_ref().unwrap());
-//                 prev = None;
-//             }
-//             else {
-//                 if prev_dot.is_some() {
-//                     nchidlren.push(prev_dot.unwrap());
-//                     prev_dot = None;
-//                 }
-//                 nchidlren.push(child.clone());
-//                 prev = Some(child);
-//             }
-//         }
-//     }
-
-//     if prev_dot.is_some() {
-
-//     }
-
-//     return snode;
-// }
-
-// // gives (a...(b...c))
-// fn group_dots(snode: &Snode) -> Snode {
-//     if snode.children.is_empty() {
-//         return snode.clone();
-//     }
-
-//     let rchildren = snode.children.iter().rev();
-//     let mut nchidlren: Vec<Snode> = vec![];
-//     let mut prev: Option<Snode> = None;//unwrap because the list is not empty
-//     let mut prev_dot: Option<Snode> = None;
-
-//     for child in rchildren {
-//         let child = group_dots(child);
-//         match (child.is_dots, prev.is_some(), prev_dot.is_some()) {
-//             (true, true, true) => {
-//                 //...     a      ... b
-//                 //^child  ^ prev ^prev_dot
-//                 let mut dots = Snode::make_wildcard();
-//                 dots.children = vec![prev_dot.unwrap()];
-//                 prev_dot = Some(dots);
-//                 prev = None;
-//             },
-//             (true, true, false) => {
-//                 // ... a b
-//                 let mut dots = Snode::make_wildcard();
-//                 dots.children = vec![prev.unwrap()];
-//                 prev = None;
-//                 prev_dot = Some(dots);
-//             },
-//             (true, false, true) => {
-//                 // ... ... b
-//                 //not possible
-//                 panic!("Not possible")
-//             },
-//             (true, false, false) => {
-//                 // ... x x
-//                 // this means the sem patch is something like
-//                 // a; b; ...
-//                 let mut dots = Snode::make_wildcard();
-//                 dots.children = vec![Snode::make_fake()];
-//                 prev_dot = Some(dots);
-//                 prev = None;
-//             },
-//             (false, true, true) => {
-//                 //a b ... c
-//                 //^ at here & a is not dots
-//                 let dots = prev_dot.unwrap();
-//                 nchidlren.push(dots);
-//                 prev = Some(child);
-//                 prev_dot = None;
-//             },
-//             (false, true, false) => {
-//                 // a b c
-//                 nchidlren.push(prev.unwrap());
-//                 prev = Some(child);
-//                 prev_dot = None;
-//             },
-//             (false, false, true) => {
-//                 // a     ...   b
-//                 // ^chlid ^prev_dot  && prev == None
-
-//                 // let mut dot = prev_dot.unwrap();
-//                 prev_dot.as_mut().unwrap().children.insert(0, child);
-//                 prev = Some(Snode::make_fake());//In this case it does not matter
-//             },
-//             (false, false, false) => {
-//                 //a
-//                 //start
-//                 prev = Some(child);
-//                 prev_dot = None;
-//             },
-//         }
-//     }
-
-//     match (prev_dot.is_some(), prev.is_some()) {
-//         (true, true) => {
-//             //a ...
-//             nchidlren.push(prev_dot.unwrap());
-//         },
-//         (true, false) => {
-//             let mut dot = prev_dot.unwrap();
-//             dot.children.insert(0, Snode::make_fake());
-//             nchidlren.push(dot);
-//         },
-//         (false, true) => {
-//             nchidlren.push(prev.unwrap().clone());
-//         },
-//         (false, false) => {
-//             //x
-//             panic!("Not possibe")
-//         },
-//     }
-
-//     let mut snode = snode.clone_without_children();
-//     nchidlren.reverse();
-//     snode.children = nchidlren;
-//     return snode;
-// }
-
 // Gives ((a...b)...c)
 fn group_dots(snode: &Snode) -> Snode {
     if snode.children.is_empty() {
@@ -720,7 +515,7 @@ fn group_dots(snode: &Snode) -> Snode {
             (true, true, true) => {
                 //b  ...       a      ...
                 //  ^prev_dot  ^ prev ^child
-                let mut dots = Snode::make_wildcard();
+                let mut dots = Snode::make_wildcard(child.wrapper.mcodekind);
                 dots.children = vec![prev_dot.unwrap()];
                 prev_dot = Some(dots);
                 prev = None;
@@ -744,7 +539,7 @@ fn group_dots(snode: &Snode) -> Snode {
             },
             (false, true, true) => {
                 //b ...
-                let mut dots = Snode::make_wildcard();
+                let mut dots = Snode::make_wildcard(child.wrapper.mcodekind);
                 dots.children = vec![prev.unwrap()];
                 prev = None;
                 prev_dot = Some(dots);
@@ -758,7 +553,7 @@ fn group_dots(snode: &Snode) -> Snode {
             (false, false, true) => {
                 // x x ...
                 //starts with ...
-                let mut dots = Snode::make_wildcard();
+                let mut dots = Snode::make_wildcard(child.wrapper.mcodekind);
                 dots.children = vec![Snode::make_fake()];
                 prev = None;
                 prev_dot = Some(dots);
@@ -780,7 +575,7 @@ fn group_dots(snode: &Snode) -> Snode {
         (true, false) => {
             //ends with ...
             let mut dot = prev_dot.unwrap();
-            dot.children.push(Snode::make_wildcard());
+            dot.children.push(Snode::make_fake());
             nchidlren.push(dot);
         },
         (false, true) => {
@@ -856,7 +651,6 @@ fn getpatch(
     p.striplet(hastype);
     p.tag_plus();
     p.group_dots();
-    p.minus.print_tree();
     p
 }
 
@@ -958,6 +752,11 @@ pub fn handlemods(block: &Vec<&str>) -> Result<(String, String, bool), (usize, S
         if line.trim() == "..." {
             minusbuf.push_str(&format!("{}{}", WILDCARD, '\n'));
             plusbuf.push_str(&format!("{}{}", WILDCARD, '\n'));
+            continue;
+        }
+        else if line.trim_end() == ("-...") {
+            minusbuf.push_str(&format!("/*-*/{}{}", WILDCARD, '\n'));
+            plusbuf.push('\n');
             continue;
         }
 

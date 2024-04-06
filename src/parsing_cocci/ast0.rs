@@ -84,19 +84,22 @@ impl<'a> Snode {
             is_fake: self.is_fake,
             asttoken: self.asttoken.clone(),
             kind: self.kind.clone(),
-            children: vec![]
+            children: vec![],
         };
     }
 
-    pub fn make_wildcard() -> Snode {
-        Snode {
+    pub fn make_wildcard(mcodekind: Mcodekind) -> Snode {
+        let mut snode = Snode {
             wrapper: Wrap::make_dummy(),
             is_dots: true,
             is_fake: false,
             asttoken: None,
             kind: vec![SyntaxKind::COMMENT], //No meaning
             children: vec![],
-        }
+        };
+
+        snode.wrapper.mcodekind = mcodekind;
+        snode
     }
 
     pub fn set_children(&mut self, children: Vec<Snode>) {
@@ -475,6 +478,13 @@ impl<'a> Mcodekind {
     pub fn is_context(&self) -> bool {
         match self {
             Mcodekind::Context(_, _) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_minus(&self) -> bool {
+        match self {
+            Mcodekind::Minus(_) => true,
             _ => false,
         }
     }
