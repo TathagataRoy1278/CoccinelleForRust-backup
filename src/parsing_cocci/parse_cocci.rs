@@ -17,7 +17,7 @@ use std::{collections::HashSet, vec};
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
     commons::{
-        info::WILDCARD,
+        info::{COCCI_DISJ_NAME, WILDCARD},
         util::{self, attach_pluses_back, attach_pluses_front, collecttree, worksnode},
     },
     ctl::{
@@ -985,13 +985,13 @@ pub fn handlemods(block: &Vec<&str>) -> Result<(String, String, bool), (usize, S
                 plusbuf.push('\n');
             }
             Some('(') => {
-                let holder = "if COCCIVAR {\n";
+                let holder = &format!("{}[", COCCI_DISJ_NAME);
                 plusbuf.push_str(holder);
                 minusbuf.push_str(holder);
                 indisj += 1;
             }
             Some('|') => {
-                let holder = "} else if COCCIVAR {\n";
+                let holder = "***|***\n";
                 plusbuf.push_str(holder);
                 minusbuf.push_str(holder);
             }
@@ -1001,8 +1001,8 @@ pub fn handlemods(block: &Vec<&str>) -> Result<(String, String, bool), (usize, S
                         "Disjunction does not exist. ')' in column 0 is only used for closing disjunctions. \n\
                         Put a space before ')' if not a part of disjunction.")
                 }
-                plusbuf.push_str("}\n");
-                minusbuf.push_str("}\n");
+                plusbuf.push_str("]\n");
+                minusbuf.push_str("]\n");
                 indisj -= 1;
             }
             Some('*') => {

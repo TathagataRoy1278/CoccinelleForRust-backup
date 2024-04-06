@@ -9,5 +9,11 @@ fn main() {
     }
 
     di![];
-    test()
+    test();
+
+
+    disj_cocci![
+        if let Some(bobby) = a {},
+        ten_cents
+    ];
 }

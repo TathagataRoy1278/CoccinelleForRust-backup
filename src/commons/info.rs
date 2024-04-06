@@ -102,12 +102,15 @@ pub enum ParseError {
 
 pub const WILDCARD_NAME: &str = "COCCI_DOT_DOT_DOTS";
 pub const WILDCARD: &str = "/*COCCI_DOT_DOT_DOTS*/";
+
+pub const COCCI_DISJ_NAME: &str = "__COCCI_DISJ__!";
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Unknown;
 
 
-pub static L_BROS: [SyntaxKind; 4] =
+pub const L_BROS: [SyntaxKind; 4] =
     [SyntaxKind::L_BRACK, SyntaxKind::L_ANGLE, SyntaxKind::L_CURLY, SyntaxKind::L_PAREN];
 
-pub static R_BROS: [SyntaxKind; 4] =
+pub const R_BROS: [SyntaxKind; 4] =
     [SyntaxKind::R_BRACK, SyntaxKind::R_ANGLE, SyntaxKind::R_CURLY, SyntaxKind::R_PAREN];
