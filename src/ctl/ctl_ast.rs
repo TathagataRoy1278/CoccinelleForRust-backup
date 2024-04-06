@@ -144,7 +144,7 @@ impl<Pred: Display, Mvar: Display, Anno> Display for GenericCtl<Pred, Mvar, Anno
                 GenericCtl::AX(_, _, ctl) => write!(f, "AX (").and(ctl.fmt(f)).and(write!(f, ")")),
                 GenericCtl::AG(_, _, ctl) => write!(f, "AG ").and(ctl.fmt(f)),
                 GenericCtl::AW(_, _, _, _) => todo!(),
-                GenericCtl::AU(_, _, c1, c2) => write!(f, "A[")
+                GenericCtl::AU(_, _, c1, c2) => write!(f, "\nA[")
                     .and(c1.fmt(f))
                     .and(write!(f, " U "))
                     .and(c2.fmt(f))

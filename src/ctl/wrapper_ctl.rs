@@ -84,7 +84,11 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         let s1 = &dots.children[0];
         let s2 = &dots.children[1];
 
-        let mut a1 = aux(s1, None, false, &mut (ln.clone()));
+        let mut a1 = if s1.is_dots {
+            aux(&s1.children[1], None, false, &mut (ln.clone()))
+        } else {
+            aux(s1, None, false, &mut (ln.clone()))
+        };
 
         let mut b1 = aux(s2, None, false, &mut (ln.clone()));
         let b2 = aux(s2, attach_end, false, ln);
@@ -101,7 +105,11 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         let tmp1 = CTL::Not(Box::new(CTL::Or(a1, b1)));
         let tmp2 = CTL::AU(Direction::Forward, Strict::Strict, Box::new(tmp1), b2);
 
-        aux(&dots.children[0], Some(Box::new(tmp2)), pim, ln)
+        if s1.is_dots {
+            handle_dots(&s1, Some(Box::new(tmp2)), pim, ln)
+        } else {
+            aux(&dots.children[0], Some(Box::new(tmp2)), pim, ln)
+        }
     }
 
     fn set_pm_true(ctl: &mut Box<CTL>) {

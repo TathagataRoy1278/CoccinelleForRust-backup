@@ -101,7 +101,7 @@ pub enum ParseError {
 }
 
 pub const WILDCARD_NAME: &str = "COCCI_DOT_DOT_DOTS";
-pub const WILDCARD: &str = "COCCI_DOT_DOT_DOTS![];";
+pub const WILDCARD: &str = "/*COCCI_DOT_DOT_DOTS*/";
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Unknown;
 

@@ -498,7 +498,7 @@ fn handlerules(_rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, 
     (currrulename, depends, hastype || istype)
 }
 
-fn group_dots(snode: &Snode) -> Snode {
+fn _group_dots_old(snode: &Snode) -> Snode {
     if snode.is_dots {
         panic!("Should not occur");
     }
@@ -540,6 +540,298 @@ fn group_dots(snode: &Snode) -> Snode {
     return snode;
 }
 
+// fn group_dotss(snode: &Snode) -> Snode {
+//     if snode.children.is_empty() {
+//         return snode.clone();
+//     }
+
+//     let mut rchildren = snode.children.iter().rev();
+//     let mut nchidlren: Vec<Snode> = vec![];
+//     let mut prev = Some(rchildren.next().unwrap());//unwrap because the list is not empty
+//     let mut prev_dot: Option<Snode> = if prev.as_ref().unwrap().is_dots {
+//         let dot = Snode::make_wildcard();
+//         dot.children = vec![Snode::make_fake()];
+//         Some(dot)
+//     } else {
+//         nchidlren.push(*prev.as_ref().unwrap().clone());
+//         None
+//     };
+
+//     for child in rchildren {
+//         if prev_dot.is_some() {
+//             let mut dot = prev_dot.unwrap();
+//             if dot.children.len() == 1 {
+//                 //child cannot be dot because two dots cannot be after
+//                 //one another
+//                 dot.children.insert(0, child.clone());
+//                 prev = None;
+//                 prev_dot = None;
+//             }
+//             else if dot.children.len() == 2 { }
+//             else {
+//                 panic!("Somethinge weird is happening, dots should have only 2 children.")
+//             }
+//         }
+//         else {
+//             if child.is_dots {
+//                 let mut dnode = Snode::make_wildcard();
+//                 dnode.children = 
+//                     if prev_dot.is_none() {
+//                         vec![prev.unwrap().clone()]
+//                     }
+//                     else {
+//                         vec![prev_dot.unwrap()]
+//                     };
+//                 nchidlren.push(dnode);
+//                 prev_dot = Some(nchidlren.last().as_ref().unwrap());
+//                 prev = None;
+//             }
+//             else {
+//                 if prev_dot.is_some() {
+//                     nchidlren.push(prev_dot.unwrap());
+//                     prev_dot = None;
+//                 }
+//                 nchidlren.push(child.clone());
+//                 prev = Some(child);
+//             }
+//         }
+//     }
+
+//     if prev_dot.is_some() {
+
+//     }
+
+//     return snode;
+// }
+
+// // gives (a...(b...c))
+// fn group_dots(snode: &Snode) -> Snode {
+//     if snode.children.is_empty() {
+//         return snode.clone();
+//     }
+
+//     let rchildren = snode.children.iter().rev();
+//     let mut nchidlren: Vec<Snode> = vec![];
+//     let mut prev: Option<Snode> = None;//unwrap because the list is not empty
+//     let mut prev_dot: Option<Snode> = None;
+
+//     for child in rchildren {
+//         let child = group_dots(child);
+//         match (child.is_dots, prev.is_some(), prev_dot.is_some()) {
+//             (true, true, true) => {
+//                 //...     a      ... b
+//                 //^child  ^ prev ^prev_dot
+//                 let mut dots = Snode::make_wildcard();
+//                 dots.children = vec![prev_dot.unwrap()];
+//                 prev_dot = Some(dots);
+//                 prev = None;
+//             },
+//             (true, true, false) => {
+//                 // ... a b
+//                 let mut dots = Snode::make_wildcard();
+//                 dots.children = vec![prev.unwrap()];
+//                 prev = None;
+//                 prev_dot = Some(dots);
+//             },
+//             (true, false, true) => {
+//                 // ... ... b
+//                 //not possible
+//                 panic!("Not possible")
+//             },
+//             (true, false, false) => {
+//                 // ... x x
+//                 // this means the sem patch is something like
+//                 // a; b; ...
+//                 let mut dots = Snode::make_wildcard();
+//                 dots.children = vec![Snode::make_fake()];
+//                 prev_dot = Some(dots);
+//                 prev = None;
+//             },
+//             (false, true, true) => {
+//                 //a b ... c
+//                 //^ at here & a is not dots
+//                 let dots = prev_dot.unwrap();
+//                 nchidlren.push(dots);
+//                 prev = Some(child);
+//                 prev_dot = None;
+//             },
+//             (false, true, false) => {
+//                 // a b c
+//                 nchidlren.push(prev.unwrap());
+//                 prev = Some(child);
+//                 prev_dot = None;
+//             },
+//             (false, false, true) => {
+//                 // a     ...   b
+//                 // ^chlid ^prev_dot  && prev == None
+
+//                 // let mut dot = prev_dot.unwrap();
+//                 prev_dot.as_mut().unwrap().children.insert(0, child);
+//                 prev = Some(Snode::make_fake());//In this case it does not matter
+//             },
+//             (false, false, false) => {
+//                 //a
+//                 //start
+//                 prev = Some(child);
+//                 prev_dot = None;
+//             },
+//         }
+//     }
+
+//     match (prev_dot.is_some(), prev.is_some()) {
+//         (true, true) => {
+//             //a ...
+//             nchidlren.push(prev_dot.unwrap());
+//         },
+//         (true, false) => {
+//             let mut dot = prev_dot.unwrap();
+//             dot.children.insert(0, Snode::make_fake());
+//             nchidlren.push(dot);
+//         },
+//         (false, true) => {
+//             nchidlren.push(prev.unwrap().clone());
+//         },
+//         (false, false) => {
+//             //x
+//             panic!("Not possibe")
+//         },
+//     }
+
+//     let mut snode = snode.clone_without_children();
+//     nchidlren.reverse();
+//     snode.children = nchidlren;
+//     return snode;
+// }
+
+// Gives ((a...b)...c)
+fn group_dots(snode: &Snode) -> Snode {
+    if snode.children.is_empty() {
+        return snode.clone();
+    }
+
+    let rchildren = snode.children.iter();
+    let mut nchidlren: Vec<Snode> = vec![];
+    let mut prev: Option<Snode> = None;//unwrap because the list is not empty
+    let mut prev_dot: Option<Snode> = None;
+
+    for child in rchildren {
+        let child = group_dots(child);
+        match (prev_dot.is_some(), prev.is_some(), child.is_dots) {
+            (true, true, true) => {
+                //b  ...       a      ...
+                //  ^prev_dot  ^ prev ^child
+                let mut dots = Snode::make_wildcard();
+                dots.children = vec![prev_dot.unwrap()];
+                prev_dot = Some(dots);
+                prev = None;
+            },
+            (true, true, false) => {
+                // ...        b        c
+                // ^prev_dots ^prev    ^child
+                nchidlren.push(prev_dot.unwrap());
+                prev = Some(child);
+                prev_dot = None;
+            },
+            (true, false, true) => {
+                // ... x ...
+                //not possible
+                panic!("Not possible")
+            },
+            (true, false, false) => {
+                // ... x c
+                prev_dot.as_mut().unwrap().children.push(child.clone());
+                prev = Some(child);
+            },
+            (false, true, true) => {
+                //b ...
+                let mut dots = Snode::make_wildcard();
+                dots.children = vec![prev.unwrap()];
+                prev = None;
+                prev_dot = Some(dots);
+            },
+            (false, true, false) => {
+                // a b c
+                nchidlren.push(prev.unwrap());
+                prev = Some(child);
+                prev_dot = None;
+            },
+            (false, false, true) => {
+                // x x ...
+                //starts with ...
+                let mut dots = Snode::make_wildcard();
+                dots.children = vec![Snode::make_fake()];
+                prev = None;
+                prev_dot = Some(dots);
+            },
+            (false, false, false) => {
+                //x x b
+                //start
+                prev = Some(child);
+                prev_dot = None;
+            },
+        }
+    }
+
+    match (prev_dot.is_some(), prev.is_some()) {
+        (true, true) => {
+            //... a 
+            nchidlren.push(prev_dot.unwrap());
+        },
+        (true, false) => {
+            //ends with ...
+            let mut dot = prev_dot.unwrap();
+            dot.children.push(Snode::make_wildcard());
+            nchidlren.push(dot);
+        },
+        (false, true) => {
+            //a b
+            nchidlren.push(prev.unwrap());
+        },
+        (false, false) => {
+            //x
+            panic!("Not possibe")
+        },
+    }
+
+    let mut snode = snode.clone_without_children();
+    snode.children = nchidlren;
+    return snode;
+}
+
+// fn group_dotss(snode: &mut Snode) {
+//     if snode.children.is_empty() {
+//         return;
+//     }
+
+//     let mut rchildren = snode.children.iter_mut().rev().enumerate();
+//     let (_, mut prev) = rchildren.next().unwrap();//unwrap because the list is not empty
+//     let mut prev_dot: Option<Snode> = if prev.is_dots {
+//         todo!()//make an empty Snode here
+//     } else { 
+//         None 
+//     };
+
+//     for (i, child ) in rchildren {
+//         if child.is_dots {
+//             let mut dots = Snode::make_wildcard();
+//             let dchild = if prev_dot.is_none() { 
+//                 vec![prev.clone()] 
+//             } else {
+//                 let child = prev_dot.unwrap(); 
+//                 vec![child] 
+//             };
+//             dots.children = dchild;
+//             prev_dot = Some(dots);
+//         }
+//         else {
+//             if let Some(ref mut dot) = prev_dot {
+//                 dot.children.insert(0, child.clone());
+//             }
+//             prev = child;
+//         }
+//     }
+// }
+
 fn get_body(snode: &mut Snode) {
     let stmtlist = &mut snode.children[3];
     stmtlist.children.remove(0);
@@ -564,6 +856,7 @@ fn getpatch(
     p.striplet(hastype);
     p.tag_plus();
     p.group_dots();
+    p.minus.print_tree();
     p
 }
 

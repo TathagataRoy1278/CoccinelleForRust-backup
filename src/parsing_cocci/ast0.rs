@@ -17,6 +17,7 @@ use ra_syntax::{SourceFile, SyntaxElement, SyntaxNode};
 pub struct Snode {
     pub wrapper: Wrap,
     pub is_dots: bool,
+    pub is_fake: bool,
     pub asttoken: Option<SyntaxElement>,
     kind: Vec<SyntaxKind>,
     pub children: Vec<Snode>,
@@ -65,12 +66,35 @@ impl<'a> Snode {
         aux(self)
     }
 
+    pub fn make_fake() -> Snode {
+        Snode {
+            wrapper: Wrap::make_dummy(),
+            is_dots: false,
+            is_fake: true,
+            asttoken: None,
+            kind: vec![SyntaxKind::COMMENT], //No meaning
+            children: vec![],
+        }
+    }
+
+    pub fn clone_without_children(&self) -> Snode {
+        return Snode {
+            wrapper: self.wrapper.clone(),
+            is_dots: self.is_dots,
+            is_fake: self.is_fake,
+            asttoken: self.asttoken.clone(),
+            kind: self.kind.clone(),
+            children: vec![]
+        };
+    }
+
     pub fn make_wildcard() -> Snode {
         Snode {
             wrapper: Wrap::make_dummy(),
             is_dots: true,
+            is_fake: false,
             asttoken: None,
-            kind: vec![SyntaxKind::EXPR_STMT], //No meaning
+            kind: vec![SyntaxKind::COMMENT], //No meaning
             children: vec![],
         }
     }
@@ -902,6 +926,7 @@ pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
         let snode = Snode {
             wrapper: wrapped,
             is_dots: false,
+            is_fake: false,
             asttoken: node, //Change this to SyntaxElement
             kind: kinds,
             children: children,
