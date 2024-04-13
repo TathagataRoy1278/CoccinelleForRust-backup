@@ -938,15 +938,13 @@ where
     fn tu_first_loop(
         subsumes: &impl Fn(&Triple<G, S, P>, &Triple<G, S, P>) -> isize,
         second: &TripleList<G, S, P>,
-        x: &TripleList<G, S, P>,
+        x: &[Triple<G, S, P>],
     ) -> TripleList<G, S, P> {
-        match x.as_slice() {
+        match x {
             [] => second.clone(),
-            [x, xs @ ..] => Self::tu_first_loop(
-                subsumes,
-                &Self::tu_second_loop(subsumes, x, second),
-                &xs.to_vec(),
-            ),
+            [x, xs @ ..] => {
+                Self::tu_first_loop(subsumes, &Self::tu_second_loop(subsumes, x, second), xs)
+            }
         }
     }
 
@@ -2260,12 +2258,23 @@ where
             self.ctl_flags.LOOP_IN_SRC_MODE = true;
         }
         // let m = (x, label, *preproc, states.sort());
-        fs::write(ENGINE_DOT_FILE, "").expect("Cannot write engine debug file");
-        let mut file = OpenOptions::new().write(true).append(true).open(ENGINE_DOT_FILE).unwrap();
+        let permres = fs::write(ENGINE_DOT_FILE, "");
+        let file = match &permres {
+            Ok(_) => {
+                let mut file =
+                    OpenOptions::new().write(true).append(true).open(ENGINE_DOT_FILE).unwrap();
 
-        if self.debug {
-            writeln!(file, "digraph L {{\n").expect("Could not write to engine debug file");
-        }
+                if self.debug {
+                    writeln!(file, "digraph L {{\n").expect("Could not write to engine debug file");
+                }
+
+                Some(file)
+            }
+            Err(_) => {
+                eprintln!("Could not write engine dot file");
+                None
+            }
+        };
 
         let res = self.sat_verbose_loop(
             false,
@@ -2279,8 +2288,8 @@ where
             &vec![],
         );
 
-        if self.debug {
-            writeln!(file, "}}").expect("Could not write to engine debug file");
+        if self.debug && permres.is_ok() {
+            writeln!(file.unwrap(), "}}").expect("Could not write to engine debug file");
         }
 
         return res.1;

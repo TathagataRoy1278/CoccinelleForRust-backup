@@ -88,6 +88,10 @@ pub fn work_node<'a>(
                                     vec![],
                                     vec![],
                                 )); //the mcode here is just a dummy
+
+                                if modkind.is_some() {
+                                    wc.wrapper.is_modded = true;
+                                }
                                 wc.wrapper.setmodkind(modkind.unwrap_or(String::new()));
                                 children.push(wc);
                                 modkind = None;

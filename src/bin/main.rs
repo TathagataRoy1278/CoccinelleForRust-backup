@@ -260,7 +260,7 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
 
     if true {
         let transform = |targetpath: &String| {
-            //eprintln!("Processing {}", targetpath);
+            eprintln!("Processing {}", targetpath);
             let (rules, _, hasstars) = processcocci(&patchstring);
             //Currently have to parse cocci again because Rule has SyntaxNode which which has
             //rowan `NonNull<rowan::cursor::NodeData>` which cannot be shared between threads safely
@@ -457,7 +457,7 @@ fn _transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                 neg: false,
                             }),
 
-                            BoundValue::Mod(_, modif) => {
+                            BoundValue::Mod(modif) => {
                                 cenv.modifiers.add_modifs(modif.clone());
                             }
                             BoundValue::Label(_) => {}

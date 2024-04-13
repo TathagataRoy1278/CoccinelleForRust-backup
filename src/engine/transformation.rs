@@ -332,7 +332,7 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                                 genvs.extend(cv);
                             }
 
-                            BoundValue::Mod(_, modif) => {
+                            BoundValue::Mod(modif) => {
                                 flag = Some(false);
                                 envs.iter_mut().for_each(|env| {
                                     env.modifiers.add_modifs(modif.clone());

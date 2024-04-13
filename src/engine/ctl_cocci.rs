@@ -23,9 +23,9 @@ use super::cocci_vs_rs::{MetavarBinding, Modifiers};
 #[derive(Clone, PartialEq, Eq)]
 pub enum BoundValue {
     Sub(Rc<Rnode>),
-    Mod(Snode, Modifiers),
+    Mod(Modifiers),
     Paren(usize),
-    Label(usize)
+    Label(usize),
 }
 
 type Substitution = crate::ctl::ctl_engine::Substitution<MetavarName, BoundValue>;
@@ -34,9 +34,9 @@ impl Debug for BoundValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Sub(arg0) => write!(f, "{}", arg0),
-            Self::Mod(_arg0, arg1) => write!(f, "{:?}", arg1),
+            Self::Mod(arg1) => write!(f, "{:?}", arg1),
             Self::Label(l) => write!(f, "Label({})", l),
-            Self::Paren(l) => write!(f, "Paren({})", l), 
+            Self::Paren(l) => write!(f, "Paren({})", l),
         }
     }
 }
@@ -67,6 +67,7 @@ impl Debug for Node {
             EdgeType::NextSibling => write!(f, "{:?}NS", self.0),
             EdgeType::PrevSibling => write!(f, "{:?}PS", self.0),
             EdgeType::Sibling => write!(f, "{:?}S", self.0),
+            EdgeType::Dummy => write!(f, "{:?}Du", self.0),
         }
     }
 }
@@ -189,7 +190,10 @@ pub enum Predicate {
     Kind(Vec<SyntaxKind>, bool),
     Paren(MetavarName, bool),
     Label(MetavarName, bool),
+    //AfterNode is preceeded by { which
+    //cannot be a metavar
     AfterNode,
+    Token(bool), //bool means if token should be removed
 }
 
 impl Display for Predicate {
@@ -213,6 +217,7 @@ impl Display for Predicate {
             Predicate::Paren(mvar, _) => write!(f, "Paren({})", mvar),
             Predicate::Label(mvar, _) => write!(f, "Label({})", mvar),
             Predicate::AfterNode => write!(f, "After"),
+            Predicate::Token(_) => write!(f, "Token"),
         }
     }
 }
@@ -225,6 +230,7 @@ impl Predicate {
             | Predicate::Paren(_, pm)
             | Predicate::Label(_, pm) => *pm = true,
             Predicate::AfterNode => {}
+            Predicate::Token(_) => {}
         }
     }
 
@@ -235,6 +241,9 @@ impl Predicate {
             Predicate::Paren(_, _) => {}
             Predicate::Label(_, _) => {}
             Predicate::AfterNode => {}
+            Predicate::Token(modi) => {
+                *modi = false;
+            }
         }
     }
 }
@@ -291,15 +300,13 @@ fn labels_for_ctl<'a>() -> fn(
                             if modif.ismodif() {
                                 t.push(Substitution::Subst(
                                     MetavarName::create_v(),
-                                    BoundValue::Mod(snode.clone(), env.modifiers),
+                                    BoundValue::Mod(env.modifiers),
                                 ));
                             }
                             let bindings_exist = !env.bindings.is_empty();
                             t.extend(
                                 env.bindings.into_iter().map(|s| create_subs(s)).collect_vec(),
                             );
-
-                            // let tet = if *pim { EdgeType::Sibling } else { EdgeType::Sibling };
 
                             let et = match (bindings_exist, pim) {
                                 // !t.isempty() is true if it is a metavar
@@ -345,12 +352,12 @@ fn labels_for_ctl<'a>() -> fn(
                     //kinds always has atleast one element so it can be unwrapped
                     let kind = nodew.rnode().unwrap().kinds().last().unwrap();
                     if L_BROS.contains(kind) || R_BROS.contains(kind) {
-                        let pval: BoundValue = BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
+                        let pval: BoundValue =
+                            BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
                         let sub = vec![GenericSubst::Subst(mvar.clone(), pval)];
                         acc.push((Node(nodei.clone(), tet), sub, vec![]));
                     };
                     acc
-                    
                 })
             }
             Predicate::Label(mvar, pim) => flow.nodes().iter().fold(vec![], |mut prev, node| {
@@ -378,6 +385,37 @@ fn labels_for_ctl<'a>() -> fn(
                     crate::parsing_rs::control_flow::Node::EndNode => {}
                 }
                 prev
+            }),
+            Predicate::Token(modi) => flow.nodes().iter().fold(vec![], |mut acc, node| {
+                if flow.node(*node).data().is_dummy() {
+                    return acc;
+                }
+
+                let binding = flow.node(*node);
+                let rnode = binding.data().rnode().unwrap();
+
+                if rnode.astnode.is_some() {
+                    //is a token
+                    let subs = if *modi {
+                        vec![GenericSubst::Subst(
+                            MetavarName::create_v(),
+                            BoundValue::Mod(Modifiers {
+                                minuses: vec![(
+                                    rnode.wrapper.info.charstart,
+                                    rnode.wrapper.info.charend,
+                                )],
+                                pluses: vec![],
+                            }),
+                        )]
+                    } else {
+                        vec![]
+                    };
+
+                    acc.push(((Node(node.clone(), EdgeType::Dummy)), subs, vec![]));
+                    return acc;
+                } else {
+                    return acc;
+                }
             }),
         }
     }

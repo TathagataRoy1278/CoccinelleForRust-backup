@@ -113,9 +113,14 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         CTL::do_ctl(&mut a1, &mut f);
 
         //creates the !(a v b)
-        let tmp1 = if dots.wrapper.mcodekind.is_minus() {
-            //This is to be done after the Triples are stored to the heap
-            todo!()
+        let tmp1 = if dots.wrapper.is_modded {
+            let tt = Box::new(CTL::Not(Box::new(CTL::Or(a1, b1))));
+            let tt2 = Box::new(CTL::Exists(
+                true,
+                MetavarName::create_v(),
+                Box::new(CTL::Pred(Predicate::Token(true))),
+            ));
+            CTL::And(Strict::Strict, tt, tt2)
         } else {
             CTL::Not(Box::new(CTL::Or(a1, b1)))
         };

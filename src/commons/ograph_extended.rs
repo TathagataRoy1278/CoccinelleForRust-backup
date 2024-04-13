@@ -31,9 +31,11 @@ impl EdgeIndex {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum EdgeType {
     Default,
+    Dummy,
     NextSibling, //gives next sibling for successor, but gives default node for predecessors
-    PrevSibling, //gives prev sibling for predecessor, but gives default node for successor
-    Sibling,
+    PrevSibling,
+    //gives prev sibling for predecessor, but gives default node for successor
+    Sibling, //Has lowest priority while merging
 }
 
 impl EdgeType {
@@ -139,7 +141,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
 
     pub fn add_node(&mut self, data: K) -> NodeIndex {
         let n = self.nodes.len();
-        let nd = NodeData { id: n, data: data, first_out_edge: None, first_in_edge: None };
+        let nd = NodeData { id: n, data, first_out_edge: None, first_in_edge: None };
         self.nodes.push(nd);
         NodeIndex(n)
     }
@@ -153,7 +155,7 @@ impl<'a, K: Clone + Hash> Graph<K> {
     }
 
     pub fn add_edge(&mut self, nodei: NodeIndex, succ: NodeIndex, edgetype: EdgeType) -> EdgeIndex {
-        let edge = EdgeData { origin: nodei, target: succ, edgetype: edgetype, next_edge: None };
+        let edge = EdgeData { origin: nodei, target: succ, edgetype, next_edge: None };
 
         let mut nei = self.edges.len();
         self.edges.push(edge.clone());

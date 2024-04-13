@@ -98,7 +98,17 @@ impl<'a> Snode {
             children: vec![],
         };
 
+        match mcodekind {
+            Mcodekind::Minus(_) => {
+                snode.wrapper.is_modded = true;
+            }
+            Mcodekind::Context(_, _) => {}
+            _ => {
+                panic!("Not possible")
+            }
+        }
         snode.wrapper.mcodekind = mcodekind;
+        
         snode
     }
 
