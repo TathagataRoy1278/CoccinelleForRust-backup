@@ -12,7 +12,7 @@ use core::panic;
 ///
 /// _context_
 /// (+/-) code
-use std::{collections::HashSet, vec};
+use std::{collections::HashSet, rc::Rc, vec};
 
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
@@ -394,7 +394,7 @@ pub struct Rule {
     pub hastype: bool,
     pub ctl: GenericCtl<
         <Predicate as Pred>::ty,
-        <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
+        <Rc<GenericSubst<MetavarName, BoundValue>> as Subs>::Mvar,
         Vec<String>,
     >,
 }

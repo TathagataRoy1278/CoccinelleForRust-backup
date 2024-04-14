@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 use std::{
+    borrow::Borrow,
     cmp::{max, min},
     collections::HashSet,
 };
@@ -174,7 +175,7 @@ pub fn transformrnodes(rules: &Vec<Rule>, rnodes: Rcode, debug: bool) -> Result<
         let mut forests = vec![];
         flows.iter().for_each(|flow| {
             let triples = processctl(&rule.ctl, &flow, &vec![], debug);
-            let forest = triples.into_iter().map(|(_, _, tree)| tree).collect_vec();
+            let forest = triples.into_iter().map(|tt1| tt1.2.clone()).collect_vec();
             forests.push(forest);
         });
 
@@ -317,7 +318,7 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
         match wit {
             GenericWitnessTree::Wit(_state, subs, _, witforest) => {
                 for sub in subs {
-                    match sub {
+                    match sub.borrow() {
                         GenericSubst::Subst(mvar, value) => match value {
                             BoundValue::Sub(node) => {
                                 flag = Some(true);
@@ -343,7 +344,7 @@ fn transformrnode(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
                             }
                             BoundValue::Paren(_) => {
                                 panic!("Should not come here")
-                            },
+                            }
                         },
                         GenericSubst::NegSubst(_, _) => {}
                     }

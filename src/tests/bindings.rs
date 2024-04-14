@@ -9,7 +9,7 @@ use crate::{
         disjunctions::{getdisjunctions, Disjunction},
     },
     parsing_cocci::{ast0::Snode, parse_cocci::processcocci},
-    parsing_rs::{ast_rs::Rnode, parse_rs::processrs_old},
+    parsing_rs::{ast_rs::Rnode, parse_rs::processrs},
 };
 fn tokenf<'a>(_node1: &'a Snode, _node2: &'a Rnode) -> Vec<MetavarBinding> {
     // this is
@@ -52,12 +52,18 @@ fn testfile(cocci: &str, rs: &str, gbindings: Vec<Vec<(&str, &str)>>) {
     //set_logilines(&mut rules);
 
     let (mut rules, _, _) = processcocci(&patchstring);
-    let rnode = processrs_old(&rustcode).ok().unwrap();
+    let rcode = processrs(&rustcode).ok().unwrap();
 
     let looper = Looper::new(tokenf);
     let a: Disjunction =
         getdisjunctions(Disjunction(vec![getstmtlist(&mut rules[0].patch.minus).clone().children]));
-    let envs = visitrnode_tmp(&a.0, &rnode, &|a, b| looper.handledisjunctions(a, b, vec![]));
+    let envs = rcode
+        .0
+        .into_iter()
+        .flat_map(|rnode| {
+            visitrnode_tmp(&a.0, &rnode, &|a, b| looper.handledisjunctions(a, b, vec![]))
+        })
+        .collect_vec();
     let gbindings1 = envs.into_iter().map(|x| x.bindings).collect_vec();
     let mut totalbindings: usize = 0;
     for binding1 in gbindings {

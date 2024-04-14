@@ -8,14 +8,14 @@ use crate::{
     engine::transformation,
     interface::interface::CoccinelleForRust,
     parsing_cocci::parse_cocci::processcocci,
-    parsing_rs::{ast_rs::Rnode, parse_rs::processrs_old},
+    parsing_rs::{ast_rs::Rcode, parse_rs::processrs},
 };
 
 pub struct TransformTest<'a> {
     pub prefix: &'a str,
 }
 impl<'a> TransformTest<'a> {
-    fn transformfile(&self, coccifile: &str, rsfile: &str) -> Rnode {
+    fn transformfile(&self, coccifile: &str, rsfile: &str) -> Rcode {
         let patchstring = fs::read_to_string(format!("{}{}", &self.prefix, coccifile))
             .expect("This shouldnt be empty.");
         let rustcode = fs::read_to_string(format!("{}{}", &self.prefix, rsfile))
@@ -26,7 +26,7 @@ impl<'a> TransformTest<'a> {
             transformation::transformfile(&CoccinelleForRust::parse(), &rules, rustcode)
                 .ok()
                 .unwrap();
-        let rnode = processrs_old(&get_rcode(&transformedcode)).unwrap();
+        let rnode = processrs(&get_rcode(&transformedcode)).unwrap();
         return rnode;
     }
 
@@ -35,7 +35,7 @@ impl<'a> TransformTest<'a> {
         println!("Outfile:- {}", out.getstring());
         let expected = fs::read_to_string(format!("{}{}", &self.prefix, expectedfile))
             .expect("This should not be empty.");
-        let rnode = processrs_old(&expected).unwrap();
-        return rnode.equals(&out);
+        let rnode = processrs(&expected).unwrap();
+        return rnode.eq(&out);
     }
 }

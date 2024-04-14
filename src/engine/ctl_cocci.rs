@@ -258,7 +258,7 @@ impl Pred for Predicate {
 
 //Functions
 fn create_subs(s: MetavarBinding) -> Substitution {
-    return GenericSubst::Subst(s.metavarinfo, BoundValue::Sub(s.rnode));
+    return Rc::new(GenericSubst::Subst(s.metavarinfo, BoundValue::Sub(s.rnode)));
 }
 fn _tokenf(_a: &Snode, _b: &Rnode) -> Vec<MetavarBinding> {
     vec![]
@@ -269,11 +269,13 @@ pub type CWitnessTree<'a> = WitnessTree<Rflow<'a>, Substitution, Predicate>;
 fn labels_for_ctl<'a>() -> fn(
     flow: &<Rflow<'a> as Graph>::Cfg,
     &<Predicate as Pred>::ty,
-) -> Vec<(
-    <Rflow<'a> as Graph>::Node,
-    SubstitutionList,
-    Vec<WitnessTree<Rflow<'a>, Substitution, Predicate>>,
-)> {
+) -> Vec<
+    Rc<(
+        <Rflow<'a> as Graph>::Node,
+        SubstitutionList,
+        Vec<WitnessTree<Rflow<'a>, Substitution, Predicate>>,
+    )>,
+> {
     fn oldlabelfn<'a>(
         flow: &'a Rflow<'a>,
         p: &<Predicate as Pred>::ty,
@@ -298,10 +300,10 @@ fn labels_for_ctl<'a>() -> fn(
                             // if snode
                             let mut t = vec![];
                             if modif.ismodif() {
-                                t.push(Substitution::Subst(
+                                t.push(Rc::new(GenericSubst::Subst(
                                     MetavarName::create_v(),
                                     BoundValue::Mod(env.modifiers),
-                                ));
+                                )));
                             }
                             let bindings_exist = !env.bindings.is_empty();
                             t.extend(
@@ -316,7 +318,7 @@ fn labels_for_ctl<'a>() -> fn(
                                 (false, true) => EdgeType::PrevSibling,
                             };
 
-                            let sub = (Node(node.clone(), et), t, vec![]);
+                            let sub = Rc::new((Node(node.clone(), et), t, vec![]));
 
                             prev.push(sub);
                         }
@@ -332,7 +334,7 @@ fn labels_for_ctl<'a>() -> fn(
                     } else {
                         if flow.node(*node).data().rnode().unwrap().kinds().ends_with(kinds) {
                             let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
-                            prev.push((Node(node.clone(), tet), vec![], vec![]))
+                            prev.push(Rc::new((Node(node.clone(), tet), vec![], vec![])))
                         }
                         prev
                     }
@@ -354,8 +356,8 @@ fn labels_for_ctl<'a>() -> fn(
                     if L_BROS.contains(kind) || R_BROS.contains(kind) {
                         let pval: BoundValue =
                             BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
-                        let sub = vec![GenericSubst::Subst(mvar.clone(), pval)];
-                        acc.push((Node(nodei.clone(), tet), sub, vec![]));
+                        let sub = vec![Rc::new(GenericSubst::Subst(mvar.clone(), pval))];
+                        acc.push(Rc::new((Node(nodei.clone(), tet), sub, vec![])));
                     };
                     acc
                 })
@@ -370,8 +372,9 @@ fn labels_for_ctl<'a>() -> fn(
                 let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
                 let nodei = Node(node.clone(), tet);
                 let label = nodew.label();
-                let subs = GenericSubst::Subst(mvar.clone(), BoundValue::Label(label.unwrap()));
-                prev.push((nodei, vec![subs], vec![]));
+                let subs =
+                    Rc::new(GenericSubst::Subst(mvar.clone(), BoundValue::Label(label.unwrap())));
+                prev.push(Rc::new((nodei, vec![subs], vec![])));
                 prev
             }),
             Predicate::AfterNode => flow.nodes().iter().fold(vec![], |mut prev, nodei| {
@@ -379,7 +382,7 @@ fn labels_for_ctl<'a>() -> fn(
                     crate::parsing_rs::control_flow::Node::StartNode => {}
                     crate::parsing_rs::control_flow::Node::AfterNode => {
                         let node = Node(nodei.clone(), EdgeType::Default);
-                        prev.push((node, vec![], vec![]));
+                        prev.push(Rc::new((node, vec![], vec![])));
                     }
                     crate::parsing_rs::control_flow::Node::RnodeW(_) => {}
                     crate::parsing_rs::control_flow::Node::EndNode => {}
@@ -397,7 +400,7 @@ fn labels_for_ctl<'a>() -> fn(
                 if rnode.astnode.is_some() {
                     //is a token
                     let subs = if *modi {
-                        vec![GenericSubst::Subst(
+                        vec![Rc::new(GenericSubst::Subst(
                             MetavarName::create_v(),
                             BoundValue::Mod(Modifiers {
                                 minuses: vec![(
@@ -406,12 +409,12 @@ fn labels_for_ctl<'a>() -> fn(
                                 )],
                                 pluses: vec![],
                             }),
-                        )]
+                        ))]
                     } else {
                         vec![]
                     };
 
-                    acc.push(((Node(node.clone(), EdgeType::Dummy)), subs, vec![]));
+                    acc.push(Rc::new((Node(node.clone(), EdgeType::Dummy), subs, vec![])));
                     return acc;
                 } else {
                     return acc;
@@ -561,7 +564,7 @@ pub fn model_for_ctl<'a>(
 pub fn processctl<'a>(
     ctl: &GenericCtl<
         <Predicate as Pred>::ty,
-        <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
+        <Rc<GenericSubst<MetavarName, BoundValue>> as Subs>::Mvar,
         Vec<String>,
     >,
     flow: &'a Rflow<'a>,

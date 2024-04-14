@@ -4,24 +4,25 @@ use itertools::Itertools;
 use ra_hir::known::{new, std, usize};
 use ra_rust_analyzer::cli::flags;
 use rand::random;
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 use std::fs::OpenOptions;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Sub;
+use std::rc::Rc;
 use std::{clone, fs, isize, iter, panic};
 use std::{cmp::Ordering, os::linux::raw::stat};
 
 use crate::commons::ograph_extended::NodeIndex;
 use crate::engine::cocci_vs_rs::MetavarBinding;
-use crate::{commons::info::Unknown, commons::util, ctl::ctl_ast, C};
+use crate::{ctl::ctl_ast, C};
 use std::io::prelude::*;
 
 use super::ctl_ast::{
     GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict,
 };
-use super::flag_ctl;
 
 static pNEW_INFO_OPT: bool = true;
 static pSATLEBEL_MEMO_OPT: bool = true;
@@ -42,7 +43,7 @@ impl FlagCtl {
 }
 
 pub type Substitution<Mvar: Eq + Display, Value: Clone + Eq + Display> =
-    ctl_ast::GenericSubst<Mvar, Value>;
+    Rc<ctl_ast::GenericSubst<Mvar, Value>>;
 pub type SubstitutionList<S: Subs> = Vec<Substitution<S::Mvar, S::Value>>;
 pub type GWitness<State, Anno, Value> = ctl_ast::GenericWitnessTree<State, Anno, Value>;
 pub type CTL<S: Subs, P: Pred> = Vec<GenericCtl<P::ty, S::Mvar, Vec<String>>>;
@@ -51,7 +52,8 @@ pub type WitnessTree<G: Graph, S: Subs, P: Pred> =
 
 type NodeList<G: Graph> = Vec<G::Node>;
 
-type Triple<G: Graph, S: Subs, P: Pred> = (G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>);
+type Triple<G: Graph, S: Subs, P: Pred> =
+    Rc<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>;
 pub type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
 
 type Model<'a, G: Graph, S: Subs, P: Pred> =
@@ -258,25 +260,14 @@ fn setdiff<A: PartialEq>(xs: Vec<A>, ys: &Vec<A>) -> Vec<A> {
     xs.into_iter().filter(|x| !ys.contains(x)).collect_vec()
 }
 
-fn normalize<A, B: Ord, C: Ord>(trips: Vec<(A, Vec<B>, Vec<C>)>) -> Vec<(A, Vec<B>, Vec<C>)> {
-    trips
-        .into_iter()
-        .map(|(a, mut b, mut c)| {
-            b.sort();
-            c.sort();
-            (a, b, c)
-        })
-        .collect_vec()
-}
-
-fn negate_subst<S: Subs>(th: &SubstitutionList<S>) -> Vec<SubstitutionList<S>> {
-    th.iter().map(|x| vec![x.neg()]).collect_vec()
+fn negate_subst<S: Subs>(th: SubstitutionList<S>) -> Vec<SubstitutionList<S>> {
+    th.into_iter().map(|x| vec![Rc::new(x.neg())]).collect_vec()
 }
 
 fn negate_wits<G: Graph, S: Subs, P: Pred>(
-    wit: &Vec<WitnessTree<G, S, P>>,
+    wit: Vec<WitnessTree<G, S, P>>,
 ) -> Vec<Vec<WitnessTree<G, S, P>>> {
-    let mut tmp = wit.iter().map(|x| vec![x.neg()]).collect_vec();
+    let mut tmp = wit.into_iter().map(|x| vec![x.neg()]).collect_vec();
     tmp.sort();
     tmp
 }
@@ -285,6 +276,18 @@ impl<'a, G: Graph, S: Subs, P: Pred> CTL_ENGINE<'a, G, S, P>
 where
     <G as Graph>::Cfg: 'a,
 {
+    fn normalize(trips: TripleList<G, S, P>) -> TripleList<G, S, P> {
+        trips
+            .into_iter()
+            .map(|tt1: Triple<G, S, P>| {
+                let (a, mut b, mut c) = (*tt1).clone();
+                b.sort();
+                c.sort();
+                Rc::new((a, b, c))
+            })
+            .collect_vec()
+    }
+
     pub fn new(flow: &G::Cfg, debug: bool) -> CTL_ENGINE<G, S, P> {
         CTL_ENGINE {
             cfg: flow,
@@ -299,7 +302,13 @@ where
     }
 
     pub fn get_states(l: &TripleList<G, S, P>) -> NodeList<G> {
-        let l = l.iter().map(|(s, _, _)| s.clone()).collect_vec();
+        let l = l
+            .iter()
+            .map(|trip| {
+                let (s, _, _) = trip.borrow();
+                s.clone()
+            })
+            .collect_vec();
         nub(&l)
     }
 
@@ -309,9 +318,14 @@ where
     ) -> TripleList<G, S, P> {
         match required_states {
             None => s.clone(),
-            Some(states) => {
-                s.clone().into_iter().filter(|(s, _, _)| states.contains(s)).collect_vec()
-            }
+            Some(states) => s
+                .clone()
+                .into_iter()
+                .filter(|trip| {
+                    let (s, _, _) = trip.borrow();
+                    states.contains(s)
+                })
+                .collect_vec(),
         }
     }
 
@@ -487,23 +501,23 @@ where
 
     fn triples_negate(
         s: G::Node,
-        th: &SubstitutionList<S>,
-        wit: &Vec<WitnessTree<G, S, P>>,
+        th: SubstitutionList<S>,
+        wit: Vec<WitnessTree<G, S, P>>,
     ) -> (Vec<G::Node>, TripleList<G, S, P>) {
-        let mut negths: TripleList<G, S, P> =
-            negate_subst::<S>(th).into_iter().map(|x| (s.clone(), x, vec![])).collect_vec();
+        let mut negths: TripleList<G, S, P> = negate_subst::<S>(th.clone())
+            .into_iter()
+            .map(|x| Rc::new((s.clone(), x, vec![])))
+            .collect_vec();
         let negwit: TripleList<G, S, P> = negate_wits::<G, S, P>(wit)
             .into_iter()
-            .map(|x| (s.clone(), th.clone(), x))
+            .map(|x| Rc::new((s.clone(), th.clone(), x)))
             .collect_vec();
         negths.extend(negwit);
         return (vec![s], negths);
     }
 
-    fn triples_top(
-        states: &Vec<G::Node>,
-    ) -> Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)> {
-        states.iter().map(|x| (x.clone(), vec![], vec![])).collect_vec()
+    fn triples_top(states: &Vec<G::Node>) -> TripleList<G, S, P> {
+        states.iter().map(|x| Rc::new((x.clone(), vec![], vec![]))).collect_vec()
     }
 
     fn setify<A: PartialEq + Clone + Ord>(v: &Vec<A>) -> Vec<A> {
@@ -524,7 +538,7 @@ where
         trips: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         let anyneg = |x: &SubstitutionList<S>| {
-            x.iter().any(|x| match x {
+            x.iter().any(|x| match x.borrow() {
                 GenericSubst::NegSubst(_, _) => true,
                 GenericSubst::Subst(_, _) => false,
             })
@@ -550,7 +564,8 @@ where
                 .collect_vec()
         };
 
-        let res = trips.iter().fold(vec![], |mut prev, t @ (s, th, wit)| {
+        let res = trips.iter().fold(vec![], |mut prev, t| {
+            let (s, th, wit) = t.borrow();
             let (th_x, newth) = split_subst::<S>(&th, x);
             match th_x.as_slice() {
                 [] => {
@@ -560,9 +575,9 @@ where
                 l if anyneg(&l.to_vec()) => prev,
                 _ => {
                     let new_triple = if unchecked || not_keep {
-                        (s.clone(), newth, wit.clone())
+                        Rc::new((s.clone(), newth, wit.clone()))
                     } else if anynegwit(wit) && allnegwit(wit) {
-                        (
+                        Rc::new((
                             s.clone(),
                             newth,
                             vec![WitnessTree::<G, S, P>::NegWit(Box::new(
@@ -573,13 +588,13 @@ where
                                     negtopos(&wit),
                                 ),
                             ))],
-                        )
+                        ))
                     } else {
-                        (
+                        Rc::new((
                             s.clone(),
                             newth,
                             vec![WitnessTree::<G, S, P>::Wit(s.clone(), th_x, vec![], wit.clone())],
-                        )
+                        ))
                     };
                     prev.insert(0, new_triple);
                     prev
@@ -641,41 +656,41 @@ where
     }
 
     fn dom_sub(sub: Substitution<S::Mvar, S::Value>) -> S::Mvar {
-        match sub {
-            GenericSubst::Subst(x, _) => x,
-            GenericSubst::NegSubst(x, _) => x,
+        match sub.borrow() {
+            GenericSubst::Subst(x, _) => x.clone(),
+            GenericSubst::NegSubst(x, _) => x.clone(),
         }
     }
 
     fn ran_sub(sub: Substitution<S::Mvar, S::Value>) -> S::Value {
-        match sub {
-            GenericSubst::Subst(_, x) => x,
-            GenericSubst::NegSubst(_, x) => x,
+        match sub.borrow() {
+            GenericSubst::Subst(_, x) => x.clone(),
+            GenericSubst::NegSubst(_, x) => x.clone(),
         }
     }
 
     fn merge_sub_by(
         sub1: Substitution<S::Mvar, S::Value>,
         sub2: Substitution<S::Mvar, S::Value>,
-    ) -> Option<Vec<GenericSubst<S::Mvar, S::Value>>> {
-        match (sub1, sub2) {
+    ) -> Option<SubstitutionList<S>> {
+        match (sub1.borrow(), sub2.borrow()) {
             (GenericSubst::Subst(x1, ref v1), GenericSubst::Subst(_x2, ref v2)) => {
                 if v1 == v2 {
-                    Some(vec![GenericSubst::Subst(x1, S::merge_val(v1, v2))])
+                    Some(vec![Rc::new(GenericSubst::Subst(x1.clone(), S::merge_val(v1, v2)))])
                 } else {
                     None
                 }
             }
             (GenericSubst::NegSubst(x1, v1), GenericSubst::Subst(x2, v2)) => {
                 if v1 != v2 {
-                    Some(vec![GenericSubst::Subst(x2, v2)])
+                    Some(vec![Rc::new(GenericSubst::Subst(x2.clone(), v2.clone()))])
                 } else {
                     None
                 }
             }
             (GenericSubst::Subst(x1, v1), GenericSubst::NegSubst(x2, v2)) => {
                 if v1 != v2 {
-                    Some(vec![GenericSubst::Subst(x1, v1)])
+                    Some(vec![Rc::new(GenericSubst::Subst(x1.clone(), v1.clone()))])
                 } else {
                     None
                 }
@@ -684,12 +699,12 @@ where
                 if v1 == v2 {
                     let merged = S::merge_val(v1, v2);
                     if &merged == v1 && &merged == v2 {
-                        return Some(vec![GenericSubst::NegSubst(x1, merged)]);
+                        return Some(vec![Rc::new(GenericSubst::NegSubst(x1.clone(), merged))]);
                     }
                 }
                 Some(vec![
-                    GenericSubst::NegSubst(x1, v1.clone()),
-                    GenericSubst::NegSubst(x2, v2.clone()),
+                    Rc::new(GenericSubst::NegSubst(x1.clone(), v1.clone())),
+                    Rc::new(GenericSubst::NegSubst(x2.clone(), v2.clone())),
                 ])
             }
         }
@@ -698,7 +713,7 @@ where
     fn merge_sub(
         sub1: Substitution<S::Mvar, S::Value>,
         sub2: Substitution<S::Mvar, S::Value>,
-    ) -> Option<Vec<GenericSubst<S::Mvar, S::Value>>> {
+    ) -> Option<SubstitutionList<S>> {
         Self::merge_sub_by(sub1, sub2)
     }
 
@@ -717,11 +732,11 @@ where
         tmp
     }
 
-    fn clean_subst(mut theta: &mut SubstitutionList<S>) -> SubstitutionList<S> {
+    fn clean_subst(theta: &mut SubstitutionList<S>) -> SubstitutionList<S> {
         let cmp = |s1: &Substitution<S::Mvar, S::Value>, s2: &Substitution<S::Mvar, S::Value>| {
             let res = s1.mvar().cmp(s2.mvar());
             if res.is_eq() {
-                match (s1, s2) {
+                match (s1.borrow(), s2.borrow()) {
                     (GenericSubst::Subst(_, _), GenericSubst::NegSubst(_, _)) => {
                         std::cmp::Ordering::Less
                     }
@@ -744,12 +759,32 @@ where
                 [] => {
                     vec![]
                 }
-                [a @ GenericSubst::Subst(m1, v1), _b @ GenericSubst::NegSubst(m2, v2), rest @ ..]
-                    if &m1 == &m2 =>
-                {
-                    let rest = iter::once(a.clone()).chain(rest.to_vec().into_iter()).collect_vec();
-                    loop_fn::<S>(&rest)
+                [a, b, rest @ ..] => {
+                    let (ai, bi) = (a.borrow(), b.borrow());
+                    match (ai, bi) {
+                        (
+                            _ai @ GenericSubst::Subst(m1, v1),
+                            _bi @ GenericSubst::NegSubst(m2, v2),
+                        ) if &m1 == &m2 => {
+                            let rest = iter::once(a.clone())
+                                .chain(rest.to_vec().into_iter())
+                                .collect_vec();
+                            loop_fn::<S>(&rest)
+                        }
+                        (_x, _) => {
+                            let xs = &theta[1..];
+                            let mut tmp = loop_fn::<S>(xs);
+                            tmp.insert(0, a.clone());
+                            tmp
+                        }
+                    }
                 }
+                // [a @ GenericSubst::Subst(m1, v1), _b @ GenericSubst::NegSubst(m2, v2), rest @ ..]
+                //     if &m1 == &m2 =>
+                // {
+                //     let rest = iter::once(a.clone()).chain(rest.to_vec().into_iter()).collect_vec();
+                //     loop_fn::<S>(&rest)
+                // }
                 [x, xs @ ..] => {
                     let mut tmp = loop_fn::<S>(xs);
                     tmp.insert(0, x.clone());
@@ -870,16 +905,18 @@ where
     // TRIPLES
     fn triples_conj(t1: &TripleList<G, S, P>, t2: &TripleList<G, S, P>) -> TripleList<G, S, P> {
         let shared: TripleList<G, S, P> = vec![];
-        t1.iter().fold(shared, |rest, (s1, th1, wit1)| {
-            t2.iter().fold(rest, |rest, (s2, th2, wit2)| {
+        t1.iter().fold(shared, |rest, tt1| {
+            let (s1, th1, wit1) = tt1.borrow();
+            t2.iter().fold(rest, |rest, tt2| {
+                let (s2, th2, wit2) = tt2.borrow();
                 if s1 == s2 {
                     match Self::conj_subst(th1, th2) {
                         Ok(th) => {
                             let t = (s1.clone(), th, Self::union_wit(wit1, wit2));
-                            if rest.contains(&t) {
+                            if rest.contains(&tt1) {
                                 rest
                             } else {
-                                iter::once(t).chain(rest.into_iter()).collect_vec()
+                                iter::once(tt1.clone()).chain(rest.into_iter()).collect_vec()
                             }
                         }
                         Err(_) => rest,
@@ -900,8 +937,9 @@ where
                 // something_dropped = true;
                 trips1.clone()
             } else {
-                let subsumes = |(s1, th1, wit1): &Triple<G, S, P>,
-                                (s2, th2, wit2): &Triple<G, S, P>| {
+                let subsumes = |tt1: &Triple<G, S, P>, tt2: &Triple<G, S, P>| {
+                    let (s1, th1, wit1) = tt1.borrow();
+                    let (s2, th2, wit2) = tt2.borrow();
                     if s1 == s2 {
                         match Self::conj_subst(th1, th2) {
                             Ok(conj) => {
@@ -959,8 +997,8 @@ where
                 1 => all.to_vec(),
                 -1 => Self::tu_second_loop(subsumes, x, ys),
                 _ => {
-                    let mut a = vec![y.clone()];
-                    a.extend(Self::tu_second_loop(subsumes, x, ys));
+                    let mut a = Self::tu_second_loop(subsumes, x, ys);
+                    a.insert(0, y.clone());
                     a
                 }
             },
@@ -969,25 +1007,33 @@ where
 
     fn triples_complement(
         states: &Vec<G::Node>,
-        mut trips: &TripleList<G, S, P>,
+        mut trips: TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         if trips.is_empty() {
-            states.iter().map(|x| (x.clone(), vec![], vec![])).collect_vec()
+            states.iter().map(|x| Rc::new((x.clone(), vec![], vec![]))).collect_vec()
         } else {
             let cleanup = |(neg, pos): (Vec<G::Node>, TripleList<G, S, P>)| {
-                let keep_pos = pos.into_iter().filter(|(x, _, _)| neg.contains(x)).collect_vec();
+                let keep_pos = pos
+                    .into_iter()
+                    .filter(|tt1| {
+                        let (x, _, _) = tt1.borrow();
+                        neg.contains(x)
+                    })
+                    .collect_vec();
                 let mut tmp = setdiff(states.clone(), &neg)
                     .into_iter()
-                    .map(|x| (x, vec![], vec![]))
+                    .map(|x| Rc::new((x, vec![], vec![])))
                     .collect_vec();
                 tmp.extend(keep_pos);
                 tmp
             };
-            let mut trips = trips.clone();
             trips.sort();
             let all_negated = trips
                 .into_iter()
-                .map(|(s, th, wit)| Self::triples_negate(s.clone(), &th, &wit))
+                .map(|tt1| {
+                    let (s, th, wit) = tt1.borrow();
+                    Self::triples_negate(s.clone(), th.clone(), wit.clone())
+                })
                 .collect_vec();
             let merge_one =
                 |(neg1, pos1): &(Vec<G::Node>, TripleList<G, S, P>),
@@ -1107,7 +1153,8 @@ where
         if self.ctl_flags.PARTIAL_MATCH {
             required.clone()
         } else if pREQUIRED_ENV_OPT {
-            let envs = trips.iter().fold(vec![], |rest, (_, t, _)| {
+            let envs = trips.iter().fold(vec![], |rest, tt1| {
+                let (_, t, _) = tt1.borrow();
                 if rest.contains(t) {
                     rest
                 } else {
@@ -1197,7 +1244,7 @@ where
 
     fn get_required_states(&self, l: &TripleList<G, S, P>) -> Option<NodeList<G>> {
         if pREQUIRED_STATES_OPT && self.ctl_flags.PARTIAL_MATCH {
-            Some(Self::inner_setify(&l.iter().map(|(s, _, _)| s.clone()).collect_vec()))
+            Some(Self::inner_setify(&l.iter().map(|tt1| tt1.0.clone()).collect_vec()))
         } else {
             None
         }
@@ -1211,11 +1258,12 @@ where
             })
         };
 
-        Self::setify(&trips.iter().fold(vec![], |mut prev, (s, th, wit)| {
+        Self::setify(&trips.iter().fold(vec![], |mut prev, tt1| {
+            let (s, th, wit) = tt1.borrow();
             if anynegwit(&wit) {
                 prev
             } else {
-                prev.insert(0, (s.clone(), th.clone(), vec![]));
+                prev.insert(0, Rc::new((s.clone(), th.clone(), vec![])));
                 prev
             }
         }))
@@ -1229,10 +1277,10 @@ where
         partial_matches: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         let x = Self::triples_conj(
-            &Self::triples_complement(&states, &Self::unwitify(&unwanted)),
+            &Self::triples_complement(&states, Self::unwitify(&unwanted)),
             partial_matches,
         );
-        Self::triples_conj(&Self::unwitify(&x), &Self::triples_complement(&states, &x))
+        Self::triples_conj(&Self::unwitify(&x), &Self::triples_complement(&states, x))
     }
 
     fn strict_triples_conj(
@@ -1266,7 +1314,8 @@ where
             None => true,
             Some(reqst) => reqst.contains(s),
         };
-        let exp = |(s, th, wit): &Triple<G, S, P>| {
+        let exp = |tt1: &Triple<G, S, P>| {
+            let (s, th, wit) = tt1.borrow();
             let slist = match dir {
                 Direction::Forward => G::predecessors(&m.0, &s),
                 Direction::Backward => G::successors(&m.0, &s),
@@ -1275,7 +1324,7 @@ where
             let mut ret = vec![];
             slist.into_iter().for_each(|x: G::Node| {
                 if check(&x) {
-                    ret.push((x.clone(), th.clone(), wit.clone()));
+                    ret.push(Rc::new((x.clone(), th.clone(), wit.clone())));
                 }
             });
             return ret;
@@ -1298,7 +1347,8 @@ where
             None => true,
             Some(reqst) => reqst.contains(s),
         };
-        let exp = |(s, th, wit): &Triple<G, S, P>| {
+        let exp = |tt1: &Triple<G, S, P>| {
+            let (s, th, wit) = tt1.borrow();
             let slist = match dir {
                 Direction::Forward => G::direct_predecessors(&m.0, &s),
                 Direction::Backward => G::direct_successors(&m.0, &s),
@@ -1307,7 +1357,7 @@ where
             let mut ret = vec![];
             slist.into_iter().for_each(|x: G::Node| {
                 if check(&x) {
-                    ret.push((x.clone(), th.clone(), wit.clone()));
+                    ret.push(Rc::new((x.clone(), th.clone(), wit.clone())));
                 }
             });
             return ret;
@@ -1347,7 +1397,8 @@ where
 
         let neighbours = Self::setify(
             &y.into_iter()
-                .flat_map(|(x, _, _)| {
+                .flat_map(|tt1| {
+                    let (x, _, _) = tt1.borrow();
                     pred(&grp.0, &x).into_iter().filter(|x| check(&x)).into_iter().collect_vec()
                 })
                 .collect_vec(),
@@ -1359,26 +1410,29 @@ where
         })
         .collect_vec();
         let mut all = all.clone();
-        all.sort_by(|(a, _, _), (b, _, _)| a.cmp(b));
+        all.sort_by(|a, b| a.0.cmp(&b.0));
 
         fn up_nodes<A: Eq + Ord + Clone, B: Clone, C: Clone>(
             child: &A,
             s: &A,
-            v: &[(A, B, C)],
-        ) -> Vec<(A, B, C)> {
+            v: &[Rc<(A, B, C)>],
+        ) -> Vec<Rc<(A, B, C)>> {
             match v {
                 [] => vec![],
-                [(s1, th, wit), xs @ ..] => match s1.cmp(&child) {
-                    Ordering::Less => up_nodes(child, s, xs),
-                    Ordering::Equal => {
-                        let mut tmp = vec![(s.clone(), th.clone(), wit.clone())];
-                        tmp.extend(up_nodes(child, s, xs));
-                        tmp
+                [tt1, xs @ ..] => {
+                    let (s1, th, wit) = tt1.borrow();
+                    match s1.cmp(&child) {
+                        Ordering::Less => up_nodes(child, s, xs),
+                        Ordering::Equal => {
+                            let mut tmp = vec![Rc::new((s.clone(), th.clone(), wit.clone()))];
+                            tmp.extend(up_nodes(child, s, xs));
+                            tmp
+                        }
+                        Ordering::Greater => {
+                            vec![]
+                        }
                     }
-                    Ordering::Greater => {
-                        vec![]
-                    }
-                },
+                }
             }
         }
 
@@ -1604,21 +1658,25 @@ where
             let states_subs = self.memo_label.get(p);
             if states_subs.is_some() {
                 let states_subs = states_subs.unwrap();
-                states_subs.iter().map(|(x, y)| (x.clone(), y.clone(), vec![])).collect_vec()
+                states_subs
+                    .iter()
+                    .map(|(x, y)| Rc::new((x.clone(), y.clone(), vec![])))
+                    .collect_vec()
             } else {
                 let triples = Self::setify(&label(self.cfg, p));
                 self.memo_label.insert(
                     p.clone(),
-                    triples.iter().cloned().map(|(x, y, _)| (x, y)).collect_vec(),
+                    triples.iter().cloned().map(|tt| (tt.0.clone(), tt.1.clone())).collect_vec(),
                 );
                 triples
             }
         } else {
             Self::setify(&label(self.cfg, p))
         };
-        let ntriples = normalize(triples);
+        let ntriples = CTL_ENGINE::<G, S, P>::normalize(triples);
         if pREQUIRED_ENV_OPT {
-            ntriples.iter().fold(vec![], |rest, t @ (s, th, _)| {
+            ntriples.iter().fold(vec![], |rest, t| {
+                let (_s, th, _) = t.borrow();
                 if required
                     .iter()
                     .all(|x| x.iter().any(|th2| !(Self::conj_subst(th, th2).is_err())))
@@ -1713,7 +1771,7 @@ where
                 Self::triples_union(s2, &conj)
             };
             let drop_wits = |y: &TripleList<G, S, P>| {
-                y.iter().map(|(s, e, _)| (s.clone(), e.clone(), vec![])).collect_vec()
+                y.iter().map(|tt| Rc::new((tt.0.clone(), tt.1.clone(), vec![]))).collect_vec()
             };
             setgfix(f, &Self::triples_union(&nub(&drop_wits(s1)), s2))
         }
@@ -1833,14 +1891,12 @@ where
         // };
         let debug = self.debug;
 
-        let anno = |ctl_term: String,
-                    res: Vec<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>,
-                    children| {
+        let anno = |ctl_term: String, res: TripleList<G, S, P>, children| {
             if debug {
                 eprint!(
                     "{} -> \x1b[93m{:?}\x1b[0m. Wits - ",
                     ctl_term,
-                    res.clone().into_iter().map(|x| x.0).collect_vec()
+                    res.clone().into_iter().map(|x| x.0.clone()).collect_vec()
                 );
                 eprintln!("{:?}\n", res.clone().into_iter().map(|x| x).collect_vec());
             }
@@ -1861,7 +1917,7 @@ where
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     anno(
                         format!("NOT ({})", phi1),
-                        Self::triples_complement(&mkstates(&states, &required_states), &res1),
+                        Self::triples_complement(&mkstates(&states, &required_states), res1),
                         vec![child1],
                     )
                 }
@@ -1940,16 +1996,18 @@ where
                                             anno(st, res, vec![child1, child2])
                                         }
                                     }
-                                    [(state, _, _)] => {
+                                    [ttt1] => {
+                                        let (state, _, _) = ttt1.borrow();
                                         let reachable_states = new_required_states.expect(
                                             "AndAny makes no sense with no reachable states",
                                         );
                                         let mut res2_tbl = HashMap::new();
-                                        res2.iter().for_each(|(s1, e, w)| {
+                                        res2.iter().for_each(|tt1| {
+                                            let (s1, e, w) = tt1.borrow();
                                             hash_notest(
                                                 &mut res2_tbl,
                                                 s1.clone(),
-                                                (state.clone(), e.clone(), w.clone()),
+                                                Rc::new((state.clone(), e.clone(), w.clone())),
                                             );
                                         });
                                         let s = mkstates(&states, &required_states);
@@ -2162,7 +2220,7 @@ where
                     let res = &env.iter().find(|(v1, res)| v == v1).unwrap().1;
                     let res = if unchecked {
                         res.into_iter()
-                            .map(|(s, th, _)| (s.clone(), th.clone(), vec![]))
+                            .map(|tt1| Rc::new((tt1.0.clone(), tt1.1.clone(), vec![])))
                             .collect_vec()
                     } else {
                         res.clone()
@@ -2173,8 +2231,11 @@ where
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     let (child2, res2) = satv!(unchecked, required, required_states, phi2, env);
 
-                    let res1neg =
-                        res1.clone().into_iter().map(|(s, th, _)| (s, th, vec![])).collect_vec();
+                    let res1neg = res1
+                        .clone()
+                        .into_iter()
+                        .map(|tt1| Rc::new((tt1.0.clone(), tt1.1.clone(), vec![])))
+                        .collect_vec();
                     let pm = self.ctl_flags.PARTIAL_MATCH;
                     match (pm, &res1, &res2) {
                         (false, _res1, res2) if res2.is_empty() => {
@@ -2190,7 +2251,7 @@ where
                                 &Self::triples_conj(
                                     &Self::triples_complement(
                                         &mkstates(&states, required_states),
-                                        &res1neg,
+                                        res1neg,
                                     ),
                                     &res2,
                                 ),

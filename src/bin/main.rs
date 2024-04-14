@@ -17,6 +17,7 @@ use coccinelleforrust::{
 use env_logger::{Builder, Env};
 use itertools::{izip, Itertools};
 use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
+use std::borrow::Borrow;
 use std::fs::{canonicalize, DirEntry};
 use std::io;
 use std::io::Write;
@@ -449,7 +450,7 @@ fn _transform(trees: &Vec<Vec<CWitnessTree>>, rnode: &mut Rnode) {
         match wit {
             GenericWitnessTree::Wit(_state, subs, _, witforest) => {
                 for sub in subs {
-                    match sub {
+                    match sub.borrow() {
                         GenericSubst::Subst(mvar, value) => match value {
                             BoundValue::Sub(node) => cenv.addbinding(MetavarBinding {
                                 metavarinfo: mvar.clone(),

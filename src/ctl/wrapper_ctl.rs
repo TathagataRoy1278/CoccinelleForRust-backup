@@ -1,13 +1,12 @@
+use std::rc::Rc;
+
 use ra_parser::SyntaxKind;
 
 use crate::{
     commons::info::{L_BROS, R_BROS},
     ctl::ctl_ast::{Direction, Strict},
     engine::ctl_cocci::{BoundValue, Predicate},
-    parsing_cocci::{
-        ast0::{MetavarName, Snode},
-        parse_cocci::Patch,
-    },
+    parsing_cocci::ast0::{MetavarName, Snode},
 };
 
 use super::{
@@ -32,7 +31,7 @@ pub enum WrappedBinding<Value> {
 
 type CTL = GenericCtl<
     <Predicate as Pred>::ty,
-    <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
+    <Rc<GenericSubst<MetavarName, BoundValue>> as Subs>::Mvar,
     Vec<String>,
 >;
 
@@ -306,15 +305,4 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         }
     }
     // *ctl
-}
-
-pub fn make_ctl(
-    _patch: &Patch,
-) -> GenericCtl<
-    <Predicate as Pred>::ty,
-    <GenericSubst<MetavarName, BoundValue> as Subs>::Mvar,
-    Vec<String>,
-> {
-    // todo!()
-    GenericCtl::True
 }

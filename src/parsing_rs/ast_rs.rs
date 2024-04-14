@@ -47,6 +47,17 @@ impl Rcode {
     }
 }
 
+impl PartialEq for Rcode {
+    fn eq(&self, other: &Self) -> bool {
+        for (a, b) in izip!(self.0.iter(), other.0.iter()) {
+            if a != b {
+                return false;
+            }
+        }
+        true
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub enum ParseInfo {
     /* Present both in ast and list of tokens */
@@ -183,7 +194,6 @@ impl<'a> Rnode {
     pub fn has_kinds(&self, kinds: &Vec<SyntaxKind>) -> bool {
         self.kinds().ends_with(kinds)
     }
-    
 
     // pub fn unwrap(&self) -> (Vec<SyntaxKind>, &[Rnode]) {
     //     (self.kinds(), &self.children[..])

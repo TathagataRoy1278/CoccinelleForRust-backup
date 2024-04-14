@@ -185,6 +185,13 @@ impl<Mvar: Clone + Eq, Val: Clone + Eq> GenericSubst<Mvar, Val> {
             GenericSubst::NegSubst(a, b) => GenericSubst::Subst(a, b),
         }
     }
+
+    pub fn into_neg(self) -> GenericSubst<Mvar, Val> {
+        match self {
+            GenericSubst::Subst(a, b) => GenericSubst::NegSubst(a, b),
+            GenericSubst::NegSubst(a, b) => GenericSubst::Subst(a, b),
+        }
+    }
 }
 
 impl<Mvar: Clone + Ord, Val: Clone + Eq> PartialOrd for GenericSubst<Mvar, Val> {
@@ -231,6 +238,10 @@ pub enum GenericWitnessTree<State: Eq + Clone, Subst: Eq + Clone + Ord, Anno: Eq
 impl<A: Eq + Clone, B: Eq + Clone + Ord, C: Eq + Clone> GenericWitnessTree<A, B, C> {
     pub fn neg(&self) -> GenericWitnessTree<A, B, C> {
         GenericWitnessTree::NegWit(Box::new(self.clone()))
+    }
+
+    pub fn into_neg(self) -> GenericWitnessTree<A, B, C> {
+        GenericWitnessTree::NegWit(Box::new(self))
     }
 
     pub fn subs(&self) -> B {
