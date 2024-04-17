@@ -21,3 +21,13 @@
    ...
    k
    ... 
+
+
+   check if
+
+   -f(1, x)
+   +f(1, &x)
+
+   affects
+
+   f(1, f(1, fe()))

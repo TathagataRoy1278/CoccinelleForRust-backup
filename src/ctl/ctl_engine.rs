@@ -4,14 +4,17 @@ use itertools::Itertools;
 use ra_hir::known::{new, std, usize};
 use ra_rust_analyzer::cli::flags;
 use rand::random;
+use rayon::collections::linked_list::Iter;
 use std::borrow::{Borrow, BorrowMut};
-use std::collections::HashMap;
+use std::cell::{Ref, RefCell};
+use std::collections::{HashMap, LinkedList};
 use std::fmt::{Debug, Display};
 use std::fs::OpenOptions;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Sub;
 use std::rc::Rc;
+use std::time::Instant;
 use std::{clone, fs, isize, iter, panic};
 use std::{cmp::Ordering, os::linux::raw::stat};
 
@@ -54,7 +57,7 @@ type NodeList<G: Graph> = Vec<G::Node>;
 
 type Triple<G: Graph, S: Subs, P: Pred> =
     Rc<(G::Node, SubstitutionList<S>, Vec<WitnessTree<G, S, P>>)>;
-pub type TripleList<G: Graph, S: Subs, P: Pred> = Vec<Triple<G, S, P>>;
+pub type TripleList<G: Graph, S: Subs, P: Pred> = LinkedList<Triple<G, S, P>>;
 
 type Model<'a, G: Graph, S: Subs, P: Pred> =
     (&'a G::Cfg, fn(&G::Cfg, &P::ty) -> TripleList<G, S, P>, fn(&P::ty) -> bool, NodeList<G>);
@@ -62,6 +65,12 @@ pub enum Auok<G: Graph, S: Subs, P: Pred> {
     Auok(TripleList<G, S, P>),
     AuFailed(TripleList<G, S, P>),
 }
+
+// impl<G: Graph, S: Subs, P: Pred> Borrow for TripleList<G, S, P> {
+//     fn borrow(&self) -> &Borrowed {
+//         todo!()
+//     }
+// }
 
 pub trait Graph {
     type Cfg;
@@ -120,7 +129,7 @@ fn annot<A: Graph, B: Subs, C: Pred, D>(
     let mut wr_str: String = String::new();
 
     // let wits = format!("{:?}\n", res.clone().into_iter().map(|x| x.2).collect_vec());
-    let nodes = res.iter().fold(String::new(), |mut acc, node| {
+    let nodes: String = res.iter().fold(String::new(), |mut acc, node| {
         acc.push_str(&format!("{:?}\n", node.0));
         acc
     });
@@ -155,6 +164,12 @@ pub(crate) struct CTL_ENGINE<'a, G: Graph, S: Subs, P: Pred> {
 
 //===========================================================================/
 //Functions//
+
+fn nubll<A: Clone + Ord>(v: &LinkedList<A>) -> LinkedList<A> {
+    let mut v = v.iter().cloned().collect_vec();
+    v.sort();
+    v.into_iter().dedup().collect()
+}
 
 fn nub<A: Clone + Ord>(v: &Vec<A>) -> Vec<A> {
     let mut v = v.clone();
@@ -192,15 +207,15 @@ fn mkstates<A: Clone>(states: &Vec<A>, required_states: &Option<Vec<A>>) -> Vec<
     }
 }
 
-fn hash_notest<A: Eq + Hash, B>(tbl: &mut HashMap<A, Vec<B>>, key: A, value: B) {
+fn hash_notest<A: Eq + Hash, B>(tbl: &mut HashMap<A, LinkedList<B>>, key: A, value: B) {
     match tbl.get_mut(&key) {
         Some(curr) => {
-            let mut tmp = vec![value];
+            let mut tmp: LinkedList<B> = [value].into_iter().collect();
             tmp.append(curr);
             tbl.insert(key, tmp);
         }
         None => {
-            tbl.insert(key, vec![value]);
+            tbl.insert(key, [value].into_iter().collect());
         }
     }
 }
@@ -237,16 +252,38 @@ fn subsetEq<A: Eq>(xs: &Vec<A>, ys: &Vec<A>) -> bool {
     xs.iter().all(|x| ys.contains(x))
 }
 
+fn subsetEqll<A: Eq>(xs: &LinkedList<A>, ys: &LinkedList<A>) -> bool {
+    xs.iter().all(|x| ys.contains(x))
+}
+
 fn supsetEq<A: Eq>(xs: &Vec<A>, ys: &Vec<A>) -> bool {
     subsetEq(ys, xs)
+}
+
+fn supsetEqll<A: Eq>(xs: &LinkedList<A>, ys: &LinkedList<A>) -> bool {
+    subsetEqll(ys, xs)
 }
 
 fn setfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: &Vec<A>) -> Vec<A> {
     fix(subsetEq, f, x)
 }
 
+fn setfixll<A: Eq>(
+    f: impl Fn(&LinkedList<A>) -> LinkedList<A>,
+    x: &LinkedList<A>,
+) -> LinkedList<A> {
+    fix(subsetEqll, f, x)
+}
+
 fn setgfix<A: Eq>(f: impl Fn(&Vec<A>) -> Vec<A>, x: &Vec<A>) -> Vec<A> {
     fix(supsetEq, f, x)
+}
+
+fn setgfixll<A: Eq>(
+    f: impl Fn(&LinkedList<A>) -> LinkedList<A>,
+    x: &LinkedList<A>,
+) -> LinkedList<A> {
+    fix(supsetEqll, f, x)
 }
 
 //---------
@@ -257,7 +294,11 @@ fn foldl1<A>(f: impl FnMut(A, &A) -> A, mut xs: Vec<A>) -> A {
 }
 
 fn setdiff<A: PartialEq>(xs: Vec<A>, ys: &Vec<A>) -> Vec<A> {
-    xs.into_iter().filter(|x| !ys.contains(x)).collect_vec()
+    xs.into_iter().filter(|x| !ys.contains(x)).collect()
+}
+
+fn setdiffll<A: PartialEq + Clone>(xs: &LinkedList<A>, ys: &LinkedList<A>) -> LinkedList<A> {
+    xs.iter().filter(|x| !ys.contains(x)).cloned().collect()
 }
 
 fn negate_subst<S: Subs>(th: SubstitutionList<S>) -> Vec<SubstitutionList<S>> {
@@ -285,7 +326,7 @@ where
                 c.sort();
                 Rc::new((a, b, c))
             })
-            .collect_vec()
+            .collect()
     }
 
     pub fn new(flow: &G::Cfg, debug: bool) -> CTL_ENGINE<G, S, P> {
@@ -325,7 +366,7 @@ where
                     let (s, _, _) = trip.borrow();
                     states.contains(s)
                 })
-                .collect_vec(),
+                .collect(),
         }
     }
 
@@ -362,25 +403,25 @@ where
         op: fn(
             &Direction,
             &Model<G, S, P>,
-            &TripleList<G, S, P>,
+            TripleList<G, S, P>,
             &Option<NodeList<G>>,
         ) -> TripleList<G, S, P>,
         failop: fn(
             &Direction,
             &Model<G, S, P>,
-            &TripleList<G, S, P>,
+            TripleList<G, S, P>,
             &Option<NodeList<G>>,
         ) -> TripleList<G, S, P>,
         dir: &Direction,
         m: &Model<G, S, P>,
-        trips: &TripleList<G, S, P>,
+        trips: TripleList<G, S, P>,
         required_states: &Option<Vec<G::Node>>,
     ) -> TripleList<G, S, P> {
-        let res = op(dir, &m, trips, required_states);
+        let res = op(dir, &m, trips.clone(), required_states);
         if self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
             let states = mkstates(&m.3, &required_states);
             let fail = Self::filter_conj(&states, &res, &(failop(dir, m, trips, required_states)));
-            return Self::triples_union(&res, &fail);
+            return Self::triples_union(res, &fail);
         } else {
             return res;
         }
@@ -393,29 +434,29 @@ where
             &Self,
             &Direction,
             &Model<G, S, P>,
-            &TripleList<G, S, P>,
-            &TripleList<G, S, P>,
+            TripleList<G, S, P>,
+            TripleList<G, S, P>,
             &Option<NodeList<G>>,
         ) -> Auok<G, S, P>,
         failop: fn(
             &Direction,
             &Model<G, S, P>,
-            &TripleList<G, S, P>,
+            TripleList<G, S, P>,
             &Option<NodeList<G>>,
         ) -> TripleList<G, S, P>,
         dir: &Direction,
         m: &Model<G, S, P>,
-        trips1: &TripleList<G, S, P>,
-        trips2: &TripleList<G, S, P>,
+        trips1: TripleList<G, S, P>,
+        trips2: TripleList<G, S, P>,
         required_states: &Option<NodeList<G>>,
     ) -> Auok<G, S, P> {
-        match op(self, dir, m, trips1, trips2, required_states) {
+        match op(self, dir, m, trips1.clone(), trips2, required_states) {
             Auok::Auok(res) => {
                 if self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
                     let states = mkstates(&m.3, required_states);
                     let fail =
                         Self::filter_conj(&states, &res, &failop(dir, m, trips1, required_states));
-                    Auok::Auok(Self::triples_union(&res, &fail))
+                    Auok::Auok(Self::triples_union(res, &fail))
                 } else {
                     Auok::Auok(res)
                 }
@@ -430,27 +471,27 @@ where
         op: fn(
             &Direction,
             &Model<G, S, P>,
-            &TripleList<G, S, P>,
-            &TripleList<G, S, P>,
+            TripleList<G, S, P>,
+            TripleList<G, S, P>,
             &Option<NodeList<G>>,
         ) -> TripleList<G, S, P>,
         failop: fn(
             &Direction,
             &Model<G, S, P>,
-            &TripleList<G, S, P>,
+            TripleList<G, S, P>,
             &Option<NodeList<G>>,
         ) -> TripleList<G, S, P>,
         dir: &Direction,
         m: &Model<G, S, P>,
-        trips1: &TripleList<G, S, P>,
-        trips2: &TripleList<G, S, P>,
+        trips1: TripleList<G, S, P>,
+        trips2: TripleList<G, S, P>,
         required_states: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
-        let res = op(dir, m, trips1, trips2, required_states);
+        let res = op(dir, m, trips1, trips2.clone(), required_states);
         if self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
             let states = mkstates(&m.3, required_states);
             let fail = Self::filter_conj(&states, &res, &failop(dir, m, trips2, required_states));
-            Self::triples_union(&res, &fail)
+            Self::triples_union(res, &fail)
         } else {
             res
         }
@@ -507,24 +548,28 @@ where
         let mut negths: TripleList<G, S, P> = negate_subst::<S>(th.clone())
             .into_iter()
             .map(|x| Rc::new((s.clone(), x, vec![])))
-            .collect_vec();
+            .collect();
         let negwit: TripleList<G, S, P> = negate_wits::<G, S, P>(wit)
             .into_iter()
             .map(|x| Rc::new((s.clone(), th.clone(), x)))
-            .collect_vec();
+            .collect();
         negths.extend(negwit);
         return (vec![s], negths);
     }
 
     fn triples_top(states: &Vec<G::Node>) -> TripleList<G, S, P> {
-        states.iter().map(|x| Rc::new((x.clone(), vec![], vec![]))).collect_vec()
+        states.iter().map(|x| Rc::new((x.clone(), vec![], vec![]))).collect()
     }
 
     fn setify<A: PartialEq + Clone + Ord>(v: &Vec<A>) -> Vec<A> {
         nub(v)
     }
 
-    fn inner_setify<A: PartialEq + Clone + Ord>(mut v: &Vec<A>) -> Vec<A> {
+    fn setifyll<A: PartialEq + Clone + Ord>(v: &LinkedList<A>) -> LinkedList<A> {
+        nubll(v)
+    }
+
+    fn inner_setify<A: PartialEq + Clone + Ord>(v: &Vec<A>) -> Vec<A> {
         let mut a = Self::setify(v);
         a.sort();
         a
@@ -564,12 +609,12 @@ where
                 .collect_vec()
         };
 
-        let res = trips.iter().fold(vec![], |mut prev, t| {
+        let res = trips.iter().fold(LinkedList::new(), |mut prev, t| {
             let (s, th, wit) = t.borrow();
             let (th_x, newth) = split_subst::<S>(&th, x);
             match th_x.as_slice() {
                 [] => {
-                    prev.insert(0, t.clone());
+                    prev.push_front(t.clone());
                     prev
                 }
                 l if anyneg(&l.to_vec()) => prev,
@@ -596,15 +641,15 @@ where
                             vec![WitnessTree::<G, S, P>::Wit(s.clone(), th_x, vec![], wit.clone())],
                         ))
                     };
-                    prev.insert(0, new_triple);
+                    prev.push_front(new_triple);
                     prev
                 }
             }
         });
         if unchecked && self.ctl_flags.PARTIAL_MATCH {
-            Self::setify(&res)
+            Self::setifyll(&res)
         } else {
-            res.into_iter().rev().collect_vec()
+            res.into_iter().rev().collect()
         }
     }
 
@@ -652,6 +697,34 @@ where
                 t.sort();
                 t
             }
+        }
+    }
+
+    fn union_byll<A: Ord + Clone>(xs: LinkedList<A>, tmp: LinkedList<A>) -> LinkedList<A> {
+        if tmp.is_empty() {
+            xs.clone()
+        } else {
+            let ys = tmp;
+            fn loop_fn<A: PartialEq + Clone>(
+                ys: &LinkedList<A>,
+                mut tt: LinkedList<A>,
+            ) -> LinkedList<A> {
+                if tt.is_empty() {
+                    ys.clone()
+                } else {
+                    let x = tt.pop_front().unwrap(); //since not empty
+                    let xs = tt;
+                    if ys.contains(&x) {
+                        loop_fn(ys, xs)
+                    } else {
+                        let mut tmp = loop_fn(ys, xs);
+                        tmp.push_front(x);
+                        tmp
+                    }
+                }
+            }
+            let res: LinkedList<A> = loop_fn(&ys, xs).into_iter().sorted().collect();
+            res
         }
     }
 
@@ -904,19 +977,20 @@ where
 
     // TRIPLES
     fn triples_conj(t1: &TripleList<G, S, P>, t2: &TripleList<G, S, P>) -> TripleList<G, S, P> {
-        let shared: TripleList<G, S, P> = vec![];
+        let shared: TripleList<G, S, P> = LinkedList::new();
         t1.iter().fold(shared, |rest, tt1| {
             let (s1, th1, wit1) = tt1.borrow();
-            t2.iter().fold(rest, |rest, tt2| {
+            t2.iter().fold(rest, |mut rest, tt2| {
                 let (s2, th2, wit2) = tt2.borrow();
                 if s1 == s2 {
                     match Self::conj_subst(th1, th2) {
                         Ok(th) => {
-                            let t = (s1.clone(), th, Self::union_wit(wit1, wit2));
-                            if rest.contains(&tt1) {
+                            let t = Rc::new((s1.clone(), th, Self::union_wit(wit1, wit2)));
+                            if rest.contains(&t) {
                                 rest
                             } else {
-                                iter::once(tt1.clone()).chain(rest.into_iter()).collect_vec()
+                                rest.push_front(t.clone());
+                                rest
                             }
                         }
                         Err(_) => rest,
@@ -929,13 +1003,14 @@ where
     }
 
     fn triples_union(
-        trips1: &TripleList<G, S, P>,
+        trips1: TripleList<G, S, P>,
         trips2: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
+        eprintln!("trips1 {}, trips2 {}", trips1.len(), trips2.len());
         if pNEW_INFO_OPT {
-            if trips1 == trips2 {
+            if &trips1 == trips2 {
                 // something_dropped = true;
-                trips1.clone()
+                trips1
             } else {
                 let subsumes = |tt1: &Triple<G, S, P>, tt2: &Triple<G, S, P>| {
                     let (s1, th1, wit1) = tt1.borrow();
@@ -966,42 +1041,55 @@ where
                     }
                 };
 
-                Self::tu_first_loop(&subsumes, trips1, trips2)
+                Self::tu_first_loop(&subsumes, trips1, trips2.iter())
             }
         } else {
-            Self::union_by(&trips1, &trips2)
+            Self::union_byll(trips1, trips2.clone())
         }
     }
 
     fn tu_first_loop(
         subsumes: &impl Fn(&Triple<G, S, P>, &Triple<G, S, P>) -> isize,
-        second: &TripleList<G, S, P>,
-        x: &[Triple<G, S, P>],
+        second: TripleList<G, S, P>,
+        mut x: std::collections::linked_list::Iter<'_, Triple<G, S, P>>,
     ) -> TripleList<G, S, P> {
-        match x {
-            [] => second.clone(),
-            [x, xs @ ..] => {
-                Self::tu_first_loop(subsumes, &Self::tu_second_loop(subsumes, x, second), xs)
-            }
+        if let Some(tmpx) = x.next() {
+            let xs = x;
+            let start = Instant::now();
+            let a = Self::tu_first_loop(subsumes, Self::tu_second_loop(subsumes, tmpx, second), xs);
+            eprintln!("time {:?}", start.elapsed());
+            a
+        } else {
+            second
         }
     }
 
     fn tu_second_loop(
         subsumes: &impl Fn(&Triple<G, S, P>, &Triple<G, S, P>) -> isize,
         x: &Triple<G, S, P>,
-        y: &[Triple<G, S, P>],
+        y: TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
-        match y {
-            [] => vec![x.clone()],
-            all @ [y, ys @ ..] => match subsumes(x, y) {
-                1 => all.to_vec(),
-                -1 => Self::tu_second_loop(subsumes, x, ys),
-                _ => {
-                    let mut a = Self::tu_second_loop(subsumes, x, ys);
-                    a.insert(0, y.clone());
-                    a
+        if y.is_empty() {
+            [x.clone()].into_iter().collect()
+        } else {
+            let mut all = y;
+            let y = all.pop_front().unwrap();
+            match subsumes(x, &y) {
+                1 => {
+                    all.push_front(y);
+                    all
                 }
-            },
+                -1 => {
+                    let ys = all;
+                    Self::tu_second_loop(subsumes, x, ys)
+                }
+                _ => {
+                    let ys = all;
+                    let mut tmp = Self::tu_second_loop(subsumes, x, ys);
+                    tmp.push_front(y);
+                    tmp
+                }
+            }
         }
     }
 
@@ -1010,24 +1098,24 @@ where
         mut trips: TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         if trips.is_empty() {
-            states.iter().map(|x| Rc::new((x.clone(), vec![], vec![]))).collect_vec()
+            states.iter().map(|x| Rc::new((x.clone(), vec![], vec![]))).collect()
         } else {
             let cleanup = |(neg, pos): (Vec<G::Node>, TripleList<G, S, P>)| {
-                let keep_pos = pos
+                let keep_pos: TripleList<G, S, P> = pos
                     .into_iter()
                     .filter(|tt1| {
                         let (x, _, _) = tt1.borrow();
                         neg.contains(x)
                     })
-                    .collect_vec();
-                let mut tmp = setdiff(states.clone(), &neg)
+                    .collect();
+                let mut tmp: TripleList<G, S, P> = setdiff(states.clone(), &neg)
                     .into_iter()
                     .map(|x| Rc::new((x, vec![], vec![])))
-                    .collect_vec();
+                    .collect();
                 tmp.extend(keep_pos);
                 tmp
             };
-            trips.sort();
+            let trips: TripleList<G, S, P> = trips.into_iter().sorted().collect();
             let all_negated = trips
                 .into_iter()
                 .map(|tt1| {
@@ -1038,25 +1126,25 @@ where
             let merge_one =
                 |(neg1, pos1): &(Vec<G::Node>, TripleList<G, S, P>),
                  (neg2, pos2): &(Vec<G::Node>, TripleList<G, S, P>)| {
-                    let mut pos1conj = vec![];
-                    let mut pos1keep = vec![];
+                    let mut pos1conj = LinkedList::new();
+                    let mut pos1keep = LinkedList::new();
 
                     for x in pos1 {
                         if neg2.contains(&x.0) {
-                            pos1conj.push(x.clone());
+                            pos1conj.push_back(x.clone());
                         } else {
-                            pos1keep.push(x.clone());
+                            pos1keep.push_back(x.clone());
                         }
                     }
 
-                    let mut pos2conj = vec![];
-                    let mut pos2keep = vec![];
+                    let mut pos2conj = LinkedList::new();
+                    let mut pos2keep = LinkedList::new();
 
                     for x in pos2 {
                         if neg1.contains(&x.0) {
-                            pos2conj.push(x.clone());
+                            pos2conj.push_back(x.clone());
                         } else {
-                            pos2keep.push(x.clone());
+                            pos2keep.push_back(x.clone());
                         }
                     }
 
@@ -1258,12 +1346,12 @@ where
             })
         };
 
-        Self::setify(&trips.iter().fold(vec![], |mut prev, tt1| {
+        Self::setifyll(&trips.iter().fold(LinkedList::new(), |mut prev, tt1| {
             let (s, th, wit) = tt1.borrow();
             if anynegwit(&wit) {
                 prev
             } else {
-                prev.insert(0, Rc::new((s.clone(), th.clone(), vec![])));
+                prev.push_front(Rc::new((s.clone(), th.clone(), vec![])));
                 prev
             }
         }))
@@ -1294,9 +1382,9 @@ where
         if self.ctl_flags.PARTIAL_MATCH && strict == Strict::Strict {
             let fail_left = Self::filter_conj(&states, trips1, trips2);
             let fail_right = Self::filter_conj(&states, trips2, trips1);
-            let ors = Self::triples_union(&fail_left, &fail_right);
+            let ors = Self::triples_union(fail_left, &fail_right);
 
-            Self::triples_union(&res, &ors)
+            Self::triples_union(res, &ors)
         } else {
             res
         }
@@ -1321,20 +1409,20 @@ where
                 Direction::Backward => G::successors(&m.0, &s),
             };
 
-            let mut ret = vec![];
+            let mut ret = LinkedList::new();
             slist.into_iter().for_each(|x: G::Node| {
                 if check(&x) {
-                    ret.push(Rc::new((x.clone(), th.clone(), wit.clone())));
+                    ret.push_back(Rc::new((x.clone(), th.clone(), wit.clone())));
                 }
             });
             return ret;
         };
 
-        let mut ret = vec![];
+        let mut ret = LinkedList::new();
         y.into_iter().for_each(|x| ret.extend(exp(x)));
 
         //Implement setify? (removes duplicates)
-        return Self::setify(&ret);
+        return Self::setifyll(&ret);
     }
 
     fn pre_exist_direct(
@@ -1363,18 +1451,18 @@ where
             return ret;
         };
 
-        let mut ret = vec![];
+        let mut ret = LinkedList::new();
         y.into_iter().for_each(|x| ret.extend(exp(x)));
 
         //Implement setify? (removes duplicates)
-        return Self::setify(&ret);
+        return Self::setifyll(&ret);
     }
 
     fn pre_forall(
         dir: &Direction,
         grp: &Model<G, S, P>,
-        y: &TripleList<G, S, P>,
-        mut all: &TripleList<G, S, P>,
+        y: TripleList<G, S, P>,
+        all: &TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         let check = |s: &G::Node| match reqst {
@@ -1409,31 +1497,47 @@ where
             (x, s)
         })
         .collect_vec();
-        let mut all = all.clone();
-        all.sort_by(|a, b| a.0.cmp(&b.0));
+        let all: LinkedList<&Triple<G, S, P>> =
+            all.iter().sorted_by(|a, b| a.0.cmp(&b.0)).collect();
 
         fn up_nodes<A: Eq + Ord + Clone, B: Clone, C: Clone>(
             child: &A,
             s: &A,
-            v: &[Rc<(A, B, C)>],
-        ) -> Vec<Rc<(A, B, C)>> {
-            match v {
-                [] => vec![],
-                [tt1, xs @ ..] => {
-                    let (s1, th, wit) = tt1.borrow();
-                    match s1.cmp(&child) {
-                        Ordering::Less => up_nodes(child, s, xs),
-                        Ordering::Equal => {
-                            let mut tmp = vec![Rc::new((s.clone(), th.clone(), wit.clone()))];
-                            tmp.extend(up_nodes(child, s, xs));
-                            tmp
-                        }
-                        Ordering::Greater => {
-                            vec![]
-                        }
+            mut v: std::collections::linked_list::Iter<'_, &Rc<(A, B, C)>>,
+        ) -> LinkedList<Rc<(A, B, C)>> {
+            if let Some(tt1) = v.next() {
+                let (s1, th, wit) = (*tt1).borrow();
+                match s1.cmp(&child) {
+                    Ordering::Less => up_nodes(child, s, v),
+                    Ordering::Equal => {
+                        let mut tmp: LinkedList<Rc<(A, B, C)>> =
+                            [Rc::new((s.clone(), th.clone(), wit.clone()))].into_iter().collect();
+                        tmp.extend(up_nodes(child, s, v));
+                        tmp
                     }
+                    Ordering::Greater => LinkedList::new(),
                 }
+            } else {
+                LinkedList::new()
             }
+            // match v {
+            //     [] => LinkedList::new(),
+            //     [tt1, xs @ ..] => {
+            //         let (s1, th, wit) = tt1.borrow();
+            //         match s1.cmp(&child) {
+            //             Ordering::Less => up_nodes(child, s, xs),
+            //             Ordering::Equal => {
+            //                 let mut tmp: LinkedList<Rc<(A, B, C)>> =
+            //                     [Rc::new((s.clone(), th.clone(), wit.clone()))]
+            //                         .into_iter()
+            //                         .collect();
+            //                 tmp.extend(up_nodes(child, s, xs));
+            //                 tmp
+            //             }
+            //             Ordering::Greater => LinkedList::new(),
+            //         }
+            //     }
+            // }
         }
 
         let neighbour_triples = neighbours.iter().fold(
@@ -1442,12 +1546,12 @@ where
                 let mut tmp = vec![];
                 let mut is_error = false;
                 for child in children.into_iter() {
-                    match up_nodes(child, s, all.iter().as_slice()).as_slice() {
-                        [] => {
-                            is_error = true;
-                            break;
-                        }
-                        l => tmp.push(l.to_vec()),
+                    let rr = up_nodes(child, s, all.iter());
+                    if rr.is_empty() {
+                        is_error = true;
+                        break;
+                    } else {
+                        tmp.push(rr);
                     }
                 }
                 if !is_error {
@@ -1458,30 +1562,30 @@ where
         );
 
         match neighbour_triples.as_slice() {
-            [] => vec![],
+            [] => LinkedList::new(),
             _ => neighbour_triples
                 .into_iter()
                 .flat_map(|a| foldl1(|x, y| Self::triples_conj(&x, y), a))
-                .collect_vec(),
+                .collect(),
         }
     }
 
     pub fn satAX(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s: &TripleList<G, S, P>,
+        s: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
-        Self::pre_forall(dir, m, &s, &s, reqst)
+        Self::pre_forall(dir, m, s.clone(), &s, reqst)
     }
 
     fn satEX(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s: &TripleList<G, S, P>,
+        s: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
-        Self::pre_exist(dir, m, s, reqst)
+        Self::pre_exist(dir, m, &s, reqst)
     }
     // fn pre_forall(dir: Direction, cfg: &EgGrpah<'a>, y: Vec<(Node<'a>, Unknown, Unknown)>, )
 
@@ -1505,14 +1609,16 @@ where
         new_info: &TripleList<G, S, P>,
     ) -> Auok<G, S, P> {
         if new_info.is_empty() {
-            Auok::Auok(y.to_vec())
+            Auok::Auok(y.clone())
         } else {
-            let pre = Self::pre_forall(dir, m, new_info, y, reqst);
+            let pre = Self::pre_forall(dir, m, new_info.clone(), &y, reqst);
             match Self::triples_conj(s1, &pre) {
-                first if first.is_empty() => Auok::Auok(y.to_vec()),
+                first if first.is_empty() => Auok::Auok(y.clone()),
                 first => {
-                    let res = Self::triples_union(&first, y);
-                    let new_info = setdiff(res.clone(), y);
+                    // eprintln!("s1 - {}, pre - {}", s1.len(), pre.len());
+                    let res = Self::triples_union(first, y);
+                    let new_info = setdiffll(&res, &y);
+                    // let new_info = first;
                     Self::satAU_f(dir, m, s1, reqst, &res, &new_info)
                 }
             }
@@ -1523,30 +1629,29 @@ where
         &self,
         dir: &Direction,
         m: &Model<G, S, P>,
-        s1: &TripleList<G, S, P>,
-        s2: &TripleList<G, S, P>,
+        s1: TripleList<G, S, P>,
+        s2: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> Auok<G, S, P> {
         if s1.is_empty() {
             return Auok::Auok(s2.clone());
         } else if pNEW_INFO_OPT {
             if self.ctl_flags.LOOP_IN_SRC_MODE {
-                match Self::satEU_forAW(dir, m, s1, s2, reqst) {
-                    Ok(_) => Self::satAU_f(dir, m, s1, reqst, s2, s2),
+                match Self::satEU_forAW(dir, m, &s1, &s2, reqst) {
+                    Ok(_) => Self::satAU_f(dir, m, &s1, reqst, &s2, &s2),
                     Err(()) => return Auok::AuFailed(s2.clone()),
                 }
             } else {
-                return Self::satAU_f(dir, m, s1, reqst, s2, s2);
+                return Self::satAU_f(dir, m, &s1, reqst, &s2, &s2);
             }
         } else if self.ctl_flags.LOOP_IN_SRC_MODE {
             Auok::AuFailed(s2.clone())
         } else {
             let f = |y: &TripleList<G, S, P>| {
-                let pre = Self::pre_forall(dir, &m, y, y, reqst);
-                Self::triples_union(&s2, &Self::triples_conj(&s1, &pre))
-                // Self::
+                let pre = Self::pre_forall(dir, &m, y.clone(), y, reqst);
+                Self::triples_union(s2.clone(), &Self::triples_conj(&s1, &pre))
             };
-            return Auok::Auok(setfix(f, &s2));
+            return Auok::Auok(setfixll(f, &s2));
             // Self::union_by()
         }
     }
@@ -1554,8 +1659,8 @@ where
     fn satEU_f(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s1: &TripleList<G, S, P>,
-        s2: &TripleList<G, S, P>,
+        s1: TripleList<G, S, P>,
+        s2: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
         y: &TripleList<G, S, P>,
         new_info: &TripleList<G, S, P>,
@@ -1563,9 +1668,9 @@ where
         if new_info.is_empty() {
             y.clone()
         } else {
-            let first = Self::triples_conj(s1, &Self::pre_exist(dir, m, new_info, reqst));
-            let res = Self::triples_union(&first, y);
-            let new_info = setdiff(res.clone(), y);
+            let first = Self::triples_conj(&s1, &Self::pre_exist(dir, m, new_info, reqst));
+            let res = Self::triples_union(first, &y.clone());
+            let new_info = setdiffll(&res, y);
             Self::satEU_f(dir, m, s1, s2, reqst, &res, &new_info)
         }
     }
@@ -1573,20 +1678,20 @@ where
     pub fn satEU(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s1: &TripleList<G, S, P>,
-        s2: &TripleList<G, S, P>,
+        s1: TripleList<G, S, P>,
+        s2: TripleList<G, S, P>,
         required_states: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         if s1.is_empty() {
             return s2.clone();
         } else if pNEW_INFO_OPT {
-            Self::satEU_f(dir, m, s1, s2, required_states, s2, s2)
+            Self::satEU_f(dir, m, s1, s2.clone(), required_states, &s2, &s2)
         } else {
             let f = |y: &TripleList<G, S, P>| {
                 let pre = Self::pre_exist(dir, m, y, required_states);
-                Self::triples_union(s2, &Self::triples_conj(s1, &pre))
+                Self::triples_union(s2.clone(), &Self::triples_conj(&s1, &pre))
             };
-            setfix(f, s2)
+            setfixll(f, &s2)
         }
     }
 
@@ -1607,8 +1712,8 @@ where
                 new_info => {
                     let first =
                         Self::triples_conj(s1, &Self::pre_exist_direct(dir, m, new_info, reqst));
-                    let res = Self::triples_union(&first, y);
-                    let new_info = setdiff(res.clone(), y);
+                    let res = Self::triples_union(first, &y.clone());
+                    let new_info = setdiffll(&res, y);
                     Self::satEU_forAW_f(dir, m, s1, s2, reqst, &res, &new_info)
                 }
             }
@@ -1629,9 +1734,9 @@ where
         } else {
             let f = |y: &TripleList<G, S, P>| {
                 let pre = Self::pre_exist_direct(dir, m, y, reqst);
-                Self::triples_union(s2, &Self::triples_conj(s1, &pre))
+                Self::triples_union(s2.clone(), &Self::triples_conj(s1, &pre))
             };
-            Ok(setfix(f, s2))
+            Ok(setfixll(f, &s2))
         }
     }
 
@@ -1645,7 +1750,7 @@ where
             let pre = Self::pre_exist(dir, m, y, reqst);
             Self::triples_conj(y, &pre)
         };
-        setgfix(f, s1)
+        setgfixll(f, s1)
     }
 
     fn sat_label(
@@ -1658,12 +1763,9 @@ where
             let states_subs = self.memo_label.get(p);
             if states_subs.is_some() {
                 let states_subs = states_subs.unwrap();
-                states_subs
-                    .iter()
-                    .map(|(x, y)| Rc::new((x.clone(), y.clone(), vec![])))
-                    .collect_vec()
+                states_subs.iter().map(|(x, y)| Rc::new((x.clone(), y.clone(), vec![]))).collect()
             } else {
-                let triples = Self::setify(&label(self.cfg, p));
+                let triples = Self::setifyll(&label(self.cfg, p));
                 self.memo_label.insert(
                     p.clone(),
                     triples.iter().cloned().map(|tt| (tt.0.clone(), tt.1.clone())).collect_vec(),
@@ -1671,17 +1773,18 @@ where
                 triples
             }
         } else {
-            Self::setify(&label(self.cfg, p))
+            Self::setifyll(&label(self.cfg, p))
         };
         let ntriples = CTL_ENGINE::<G, S, P>::normalize(triples);
         if pREQUIRED_ENV_OPT {
-            ntriples.iter().fold(vec![], |rest, t| {
+            ntriples.iter().fold(LinkedList::new(), |mut rest, t| {
                 let (_s, th, _) = t.borrow();
                 if required
                     .iter()
                     .all(|x| x.iter().any(|th2| !(Self::conj_subst(th, th2).is_err())))
                 {
-                    iter::once(t.clone()).chain(rest.into_iter()).collect_vec()
+                    rest.push_front(t.clone());
+                    rest
                 } else {
                     rest
                 }
@@ -1724,16 +1827,16 @@ where
         m: &Model<G, S, P>,
         s: &TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
-        y: &TripleList<G, S, P>,
-        new_info: &TripleList<G, S, P>,
+        y: TripleList<G, S, P>,
+        new_info: TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         match new_info {
             new_info if new_info.is_empty() => y.clone(),
             new_info => {
-                let first = Self::pre_forall(dir, m, &new_info, y, reqst);
-                let res = Self::triples_union(&first, y);
-                let new_info = setdiff(res.clone(), y);
-                Self::satAF_f(dir, m, s, reqst, &res, &new_info)
+                let first = Self::pre_forall(dir, m, new_info, &y, reqst);
+                let res = Self::triples_union(first, &y.clone());
+                let new_info = setdiffll(&res, &y);
+                Self::satAF_f(dir, m, s, reqst, res, new_info)
             }
         }
     }
@@ -1741,53 +1844,53 @@ where
     fn satAF(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s: &TripleList<G, S, P>,
+        s: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         if pNEW_INFO_OPT {
-            Self::satAF_f(dir, m, s, reqst, s, s)
+            Self::satAF_f(dir, m, &s, &reqst, s.clone(), s.clone())
         } else {
             let f = |y: &TripleList<G, S, P>| {
-                let pre = Self::pre_forall(dir, m, y, y, reqst);
-                Self::triples_union(&s, &pre)
+                let pre = Self::pre_forall(dir, m, y.clone(), &y, &reqst);
+                Self::triples_union(s.clone(), &pre)
             };
-            return setfix(f, s);
+            return setfixll(f, &s);
         }
     }
 
     fn satAW(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s1: &TripleList<G, S, P>,
-        s2: &TripleList<G, S, P>,
+        s1: TripleList<G, S, P>,
+        s2: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         if s1.is_empty() {
-            s2.clone()
+            s2
         } else {
             let f = |y: &TripleList<G, S, P>| {
-                let pre = Self::pre_forall(dir, m, y, y, reqst);
-                let conj = Self::triples_conj(s1, &pre);
-                Self::triples_union(s2, &conj)
+                let pre = Self::pre_forall(dir, m, y.clone(), &y, reqst);
+                let conj = Self::triples_conj(&s1, &pre);
+                Self::triples_union(s2.clone(), &conj)
             };
             let drop_wits = |y: &TripleList<G, S, P>| {
-                y.iter().map(|tt| Rc::new((tt.0.clone(), tt.1.clone(), vec![]))).collect_vec()
+                y.iter().map(|tt| Rc::new((tt.0.clone(), tt.1.clone(), vec![]))).collect()
             };
-            setgfix(f, &Self::triples_union(&nub(&drop_wits(s1)), s2))
+            setgfixll(f, &Self::triples_union(nubll(&drop_wits(&s1)), &s2.clone()))
         }
     }
 
     fn satAG(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s: &TripleList<G, S, P>,
+        s: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         let f = |y: &TripleList<G, S, P>| {
-            let pre = Self::pre_forall(dir, m, y, y, reqst);
+            let pre = Self::pre_forall(dir, m, y.clone(), &y, reqst);
             Self::triples_conj(y, &pre)
         };
-        setgfix(f, s)
+        setgfixll(f, &s)
     }
 
     fn satEF_f(
@@ -1795,16 +1898,16 @@ where
         m: &Model<G, S, P>,
         s2: &TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
-        y: &TripleList<G, S, P>,
+        y: TripleList<G, S, P>,
         new_info: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
         match new_info {
             newinfo if newinfo.is_empty() => y.clone(),
             newinfo => {
                 let first = Self::pre_exist(dir, m, newinfo, reqst);
-                let res = Self::triples_union(&first, y);
-                let new_info = setdiff(res.clone(), y);
-                Self::satEF_f(dir, m, s2, reqst, &res, newinfo)
+                let res = Self::triples_union(first, &y.clone());
+                let new_info = setdiffll(&res, &y);
+                Self::satEF_f(dir, m, s2, reqst, res, &new_info)
             }
         }
     }
@@ -1812,17 +1915,17 @@ where
     fn satEF(
         dir: &Direction,
         m: &Model<G, S, P>,
-        s2: &TripleList<G, S, P>,
+        s2: TripleList<G, S, P>,
         reqst: &Option<NodeList<G>>,
     ) -> TripleList<G, S, P> {
         if pNEW_INFO_OPT {
-            Self::satEF_f(dir, m, s2, reqst, s2, s2)
+            Self::satEF_f(dir, m, &s2, &reqst, s2.clone(), &s2)
         } else {
             let f = |y: &TripleList<G, S, P>| {
-                let pre = Self::pre_exist(dir, m, y, reqst);
-                Self::triples_union(s2, &pre)
+                let pre = Self::pre_exist(dir, m, y, &reqst);
+                Self::triples_union(s2.clone(), &pre)
             };
-            return setfix(f, &s2);
+            return setfixll(f, &s2);
         }
     }
 
@@ -1908,7 +2011,7 @@ where
             unimplemented!();
         } else {
             let (child, res) = match phi {
-                GenericCtl::False => anno("False".to_string(), vec![], vec![]),
+                GenericCtl::False => anno("False".to_string(), LinkedList::new(), vec![]),
                 GenericCtl::True => anno("True".to_string(), Self::triples_top(&states), vec![]),
                 GenericCtl::Pred(p) => {
                     anno(format!("{}", p), Self::sat_label(self, label, required, p), vec![])
@@ -1934,7 +2037,9 @@ where
                     let pm = self.ctl_flags.PARTIAL_MATCH; //PARTIAL_MATCH
                     let st = format!("AND {} & {}", phi1, phi2);
                     match (pm, satv!(unchecked, required, required_states, phi1, env)) {
-                        (false, (child1, res)) if res.is_empty() => anno(st, vec![], vec![child1]),
+                        (false, (child1, res)) if res.is_empty() => {
+                            anno(st, LinkedList::new(), vec![child1])
+                        }
                         (_, (child1, res1)) => {
                             let new_required = self.extend_required(&res1, &required);
                             let new_required_states = self.get_required_states(&res1);
@@ -1943,7 +2048,7 @@ where
                                 satv!(unchecked, &new_required, &new_required_states, phi2, env),
                             ) {
                                 (false, (child2, res)) if res.is_empty() => {
-                                    anno(st, vec![], vec![child1, child2])
+                                    anno(st, LinkedList::new(), vec![child1, child2])
                                 }
                                 (_, (child2, res2)) => {
                                     let res = self.strict_triples_conj(
@@ -1962,8 +2067,10 @@ where
                     let pm = self.ctl_flags.PARTIAL_MATCH;
                     let st = format!("AndAny {} & {}", phi1, phi2);
                     match (pm, satv!(unchecked, required, required_states, phi1, env)) {
-                        (false, (child1, res)) if res.is_empty() => anno(st, vec![], vec![child1]),
-                        (_, (child1, res1)) => {
+                        (false, (child1, res)) if res.is_empty() => {
+                            anno(st, LinkedList::new(), vec![child1])
+                        }
+                        (_, (child1, mut res1)) => {
                             let new_required = self.extend_required(&res1, &required);
                             let new_required_states = self.get_required_states(&res1);
                             let new_required_states =
@@ -1976,33 +2083,35 @@ where
                                 (false, (child2, res)) if res.is_empty() => {
                                     anno(st, res1, vec![child1, child2])
                                 }
-                                (_, (child2, res2)) => match res1.as_slice() {
-                                    [] => {
+                                (_, (child2, mut res2)) => match res1.is_empty() {
+                                    true => {
                                         if res2.is_empty() {
-                                            anno(st, vec![], vec![child1, child2])
+                                            anno(st, LinkedList::new(), vec![child1, child2])
                                         } else {
-                                            let res = res2[1..].iter().fold(
-                                                vec![res2[0].clone()],
+                                            let tt = res2.pop_front().unwrap();
+                                            let res = res2.into_iter().fold(
+                                                [tt].into_iter().collect(),
                                                 |a, b| {
                                                     let s = mkstates(&states, &required_states);
                                                     self.strict_triples_conj(
                                                         *strict,
                                                         s,
                                                         &a,
-                                                        &vec![b.clone()],
+                                                        &[b].into_iter().collect(),
                                                     )
                                                 },
                                             );
                                             anno(st, res, vec![child1, child2])
                                         }
                                     }
-                                    [ttt1] => {
-                                        let (state, _, _) = ttt1.borrow();
+                                    false if res1.len() == 1 => {
+                                        let boo = res1.pop_front().unwrap();
+                                        let (state, _, _) = boo.borrow();
                                         let reachable_states = new_required_states.expect(
                                             "AndAny makes no sense with no reachable states",
                                         );
                                         let mut res2_tbl = HashMap::new();
-                                        res2.iter().for_each(|tt1| {
+                                        res2.into_iter().for_each(|tt1| {
                                             let (s1, e, w) = tt1.borrow();
                                             hash_notest(
                                                 &mut res2_tbl,
@@ -2041,7 +2150,7 @@ where
                     let (child2, res2) = satv!(unchecked, required, required_states, phi2, env);
                     anno(
                         format!("OR {} | {}", phi1, phi2),
-                        Self::triples_union(&res1, &res2),
+                        Self::triples_union(res1, &res2),
                         vec![child1, child2],
                     )
                 }
@@ -2073,7 +2182,7 @@ where
                             Self::satEF,
                             &dir,
                             m,
-                            &res,
+                            res,
                             &new_required_states,
                         );
                         anno(format!("AF {}", phi1), res, vec![child])
@@ -2090,8 +2199,8 @@ where
                         Self::satEX,
                         &dir,
                         m,
-                        &res,
-                        &required_states,
+                        res,
+                        required_states,
                     );
                     anno(format!("AX {}", phi1), res, vec![child])
                 }
@@ -2104,7 +2213,7 @@ where
                         Self::satEF,
                         &dir,
                         m,
-                        &res,
+                        res,
                         &new_required_states,
                     );
                     anno(format!("AG {}", phi1), res, vec![child])
@@ -2116,7 +2225,7 @@ where
                     let new_required_states = self.get_reachable(&dir, m, required_states);
                     let st = format!("A[{} U {}]", phi1, phi2);
                     match satv!(unchecked, required, &new_required_states, phi2, env) {
-                        (child2, v) if v.is_empty() => anno(st, vec![], vec![child2]),
+                        (child2, v) if v.is_empty() => anno(st, LinkedList::new(), vec![child2]),
                         (child2, s2) => {
                             let new_required = self.extend_required(&s2, &required);
                             let (child1, s1) =
@@ -2127,15 +2236,21 @@ where
                                 Self::satEF,
                                 &dir,
                                 m,
-                                &s1,
-                                &s2,
+                                s1.clone(),
+                                s2.clone(),
                                 &new_required_states,
                             );
                             match res {
                                 Auok::Auok(res) => anno(st, res, vec![child1, child2]),
                                 Auok::AuFailed(tmp_res) => {
                                     let s1 = Self::triples_conj(
-                                        &Self::satEU(&dir, m, &s1, &tmp_res, &new_required_states),
+                                        &Self::satEU(
+                                            &dir,
+                                            m,
+                                            s1.clone(),
+                                            tmp_res,
+                                            &new_required_states,
+                                        ),
                                         &s1,
                                     );
                                     let res = self.strict_A2(
@@ -2144,8 +2259,8 @@ where
                                         Self::satEF,
                                         &dir,
                                         m,
-                                        &s1,
-                                        &s2,
+                                        s1,
+                                        s2,
                                         &new_required_states,
                                     );
                                     anno(st, res, vec![child1, child2])
@@ -2159,7 +2274,7 @@ where
                     let (child, res) = satv!(unchecked, required, &new_required_states, phi1, env);
                     anno(
                         format!("EF {}", phi1),
-                        Self::satEF(&dir, m, &res, &new_required_states),
+                        Self::satEF(&dir, m, res, &new_required_states),
                         vec![child],
                     )
                 }
@@ -2169,7 +2284,7 @@ where
                     let (child, res) = satv!(unchecked, required, &new_required_states, phi, env);
                     anno(
                         format!("EX {}", phi),
-                        Self::satEX(&dir, m, &res, &required_states),
+                        Self::satEX(&dir, m, res, &required_states),
                         vec![child],
                     )
                 }
@@ -2186,7 +2301,7 @@ where
                     let new_required_states = self.get_reachable(&dir, m, required_states);
                     match (satv!(unchecked, required, &new_required_states, phi2, env)) {
                         (child2, v) if v.is_empty() => {
-                            anno(format!("E[{} U {}]", phi1, phi2), vec![], vec![child2])
+                            anno(format!("E[{} U {}]", phi1, phi2), LinkedList::new(), vec![child2])
                         }
                         (child2, res2) => {
                             let new_required = self.extend_required(&res2, required);
@@ -2194,7 +2309,7 @@ where
                                 satv!(unchecked, &new_required, &new_required_states, phi1, env);
                             anno(
                                 format!("E[{} U {}]", phi1, phi2),
-                                Self::satEU(&dir, m, &res1, &res2, &new_required_states),
+                                Self::satEU(&dir, m, res1, res2, &new_required_states),
                                 vec![child1, child2],
                             )
                         }
@@ -2221,7 +2336,7 @@ where
                     let res = if unchecked {
                         res.into_iter()
                             .map(|tt1| Rc::new((tt1.0.clone(), tt1.1.clone(), vec![])))
-                            .collect_vec()
+                            .collect()
                     } else {
                         res.clone()
                     };
@@ -2231,11 +2346,11 @@ where
                     let (child1, res1) = satv!(unchecked, required, required_states, phi1, env);
                     let (child2, res2) = satv!(unchecked, required, required_states, phi2, env);
 
-                    let res1neg = res1
+                    let res1neg: TripleList<G, S, P> = res1
                         .clone()
                         .into_iter()
                         .map(|tt1| Rc::new((tt1.0.clone(), tt1.1.clone(), vec![])))
-                        .collect_vec();
+                        .collect();
                     let pm = self.ctl_flags.PARTIAL_MATCH;
                     match (pm, &res1, &res2) {
                         (false, _res1, res2) if res2.is_empty() => {
@@ -2247,7 +2362,7 @@ where
                         _ => anno(
                             "SeqOr".to_string(),
                             Self::triples_union(
-                                &res1,
+                                res1,
                                 &Self::triples_conj(
                                     &Self::triples_complement(
                                         &mkstates(&states, required_states),

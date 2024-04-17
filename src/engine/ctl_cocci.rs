@@ -1,3 +1,4 @@
+use std::collections::LinkedList;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -269,7 +270,7 @@ pub type CWitnessTree<'a> = WitnessTree<Rflow<'a>, Substitution, Predicate>;
 fn labels_for_ctl<'a>() -> fn(
     flow: &<Rflow<'a> as Graph>::Cfg,
     &<Predicate as Pred>::ty,
-) -> Vec<
+) -> LinkedList<
     Rc<(
         <Rflow<'a> as Graph>::Node,
         SubstitutionList,
@@ -282,7 +283,7 @@ fn labels_for_ctl<'a>() -> fn(
     ) -> TripleList<Rflow<'a>, Substitution, Predicate> {
         match &p {
             Predicate::Match(snode, modif, pim) => {
-                flow.nodes().iter().fold(vec![], |mut prev, node| {
+                flow.nodes().iter().fold(LinkedList::new(), |mut prev, node| {
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
@@ -320,7 +321,7 @@ fn labels_for_ctl<'a>() -> fn(
 
                             let sub = Rc::new((Node(node.clone(), et), t, vec![]));
 
-                            prev.push(sub);
+                            prev.push_back(sub);
                         }
                         prev
                     }
@@ -328,20 +329,20 @@ fn labels_for_ctl<'a>() -> fn(
             }
             Predicate::Kind(kinds, pim) => {
                 // eprintln!("krodher agun {:?}", kind);
-                flow.nodes().iter().fold(vec![], |mut prev, node| {
+                flow.nodes().iter().fold(LinkedList::new(), |mut prev, node| {
                     if flow.node(*node).data().is_dummy() {
                         prev
                     } else {
                         if flow.node(*node).data().rnode().unwrap().kinds().ends_with(kinds) {
                             let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
-                            prev.push(Rc::new((Node(node.clone(), tet), vec![], vec![])))
+                            prev.push_back(Rc::new((Node(node.clone(), tet), vec![], vec![])))
                         }
                         prev
                     }
                 })
             }
             Predicate::Paren(mvar, pim) => {
-                flow.nodes().iter().fold(vec![], |mut acc, nodei| {
+                flow.nodes().iter().fold(LinkedList::new(), |mut acc, nodei| {
                     if flow.node(*nodei).data().is_dummy() {
                         return acc;
                     }
@@ -357,69 +358,77 @@ fn labels_for_ctl<'a>() -> fn(
                         let pval: BoundValue =
                             BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
                         let sub = vec![Rc::new(GenericSubst::Subst(mvar.clone(), pval))];
-                        acc.push(Rc::new((Node(nodei.clone(), tet), sub, vec![])));
+                        acc.push_back(Rc::new((Node(nodei.clone(), tet), sub, vec![])));
                     };
                     acc
                 })
             }
-            Predicate::Label(mvar, pim) => flow.nodes().iter().fold(vec![], |mut prev, node| {
-                if flow.node(*node).data().is_dummy() {
-                    return prev;
-                }
-
-                let binding = flow.node(*node);
-                let nodew = binding.data();
-                let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
-                let nodei = Node(node.clone(), tet);
-                let label = nodew.label();
-                let subs =
-                    Rc::new(GenericSubst::Subst(mvar.clone(), BoundValue::Label(label.unwrap())));
-                prev.push(Rc::new((nodei, vec![subs], vec![])));
-                prev
-            }),
-            Predicate::AfterNode => flow.nodes().iter().fold(vec![], |mut prev, nodei| {
-                match flow.node(*nodei).data() {
-                    crate::parsing_rs::control_flow::Node::StartNode => {}
-                    crate::parsing_rs::control_flow::Node::AfterNode => {
-                        let node = Node(nodei.clone(), EdgeType::Default);
-                        prev.push(Rc::new((node, vec![], vec![])));
+            Predicate::Label(mvar, pim) => {
+                flow.nodes().iter().fold(LinkedList::new(), |mut prev, node| {
+                    if flow.node(*node).data().is_dummy() {
+                        return prev;
                     }
-                    crate::parsing_rs::control_flow::Node::RnodeW(_) => {}
-                    crate::parsing_rs::control_flow::Node::EndNode => {}
-                }
-                prev
-            }),
-            Predicate::Token(modi) => flow.nodes().iter().fold(vec![], |mut acc, node| {
-                if flow.node(*node).data().is_dummy() {
-                    return acc;
-                }
 
-                let binding = flow.node(*node);
-                let rnode = binding.data().rnode().unwrap();
+                    let binding = flow.node(*node);
+                    let nodew = binding.data();
+                    let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
+                    let nodei = Node(node.clone(), tet);
+                    let label = nodew.label();
+                    let subs = Rc::new(GenericSubst::Subst(
+                        mvar.clone(),
+                        BoundValue::Label(label.unwrap()),
+                    ));
+                    prev.push_back(Rc::new((nodei, vec![subs], vec![])));
+                    prev
+                })
+            }
+            Predicate::AfterNode => {
+                flow.nodes().iter().fold(LinkedList::new(), |mut prev, nodei| {
+                    match flow.node(*nodei).data() {
+                        crate::parsing_rs::control_flow::Node::StartNode => {}
+                        crate::parsing_rs::control_flow::Node::AfterNode => {
+                            let node = Node(nodei.clone(), EdgeType::Default);
+                            prev.push_back(Rc::new((node, vec![], vec![])));
+                        }
+                        crate::parsing_rs::control_flow::Node::RnodeW(_) => {}
+                        crate::parsing_rs::control_flow::Node::EndNode => {}
+                    }
+                    prev
+                })
+            }
+            Predicate::Token(modi) => {
+                flow.nodes().iter().fold(LinkedList::new(), |mut acc, node| {
+                    if flow.node(*node).data().is_dummy() {
+                        return acc;
+                    }
 
-                if rnode.astnode.is_some() {
-                    //is a token
-                    let subs = if *modi {
-                        vec![Rc::new(GenericSubst::Subst(
-                            MetavarName::create_v(),
-                            BoundValue::Mod(Modifiers {
-                                minuses: vec![(
-                                    rnode.wrapper.info.charstart,
-                                    rnode.wrapper.info.charend,
-                                )],
-                                pluses: vec![],
-                            }),
-                        ))]
+                    let binding = flow.node(*node);
+                    let rnode = binding.data().rnode().unwrap();
+
+                    if rnode.astnode.is_some() {
+                        //is a token
+                        let subs = if *modi {
+                            vec![Rc::new(GenericSubst::Subst(
+                                MetavarName::create_v(),
+                                BoundValue::Mod(Modifiers {
+                                    minuses: vec![(
+                                        rnode.wrapper.info.charstart,
+                                        rnode.wrapper.info.charend,
+                                    )],
+                                    pluses: vec![],
+                                }),
+                            ))]
+                        } else {
+                            vec![]
+                        };
+
+                        acc.push_back(Rc::new((Node(node.clone(), EdgeType::Dummy), subs, vec![])));
+                        return acc;
                     } else {
-                        vec![]
-                    };
-
-                    acc.push(Rc::new((Node(node.clone(), EdgeType::Dummy), subs, vec![])));
-                    return acc;
-                } else {
-                    return acc;
-                }
-            }),
+                        return acc;
+                    }
+                })
+            }
         }
     }
 
