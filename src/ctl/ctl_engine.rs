@@ -301,6 +301,10 @@ fn setdiffll<A: PartialEq + Clone>(xs: &LinkedList<A>, ys: &LinkedList<A>) -> Li
     xs.iter().filter(|x| !ys.contains(x)).cloned().collect()
 }
 
+// fn setdiff<A: PartialEq>(xs: LinkedList<A>, ys: &Vec<A>) -> Vec<A> {
+//     xs.into_iter().filter(|x| !ys.contains(x)).collect()
+// }
+
 fn negate_subst<S: Subs>(th: SubstitutionList<S>) -> Vec<SubstitutionList<S>> {
     th.into_iter().map(|x| vec![Rc::new(x.neg())]).collect_vec()
 }
@@ -1006,7 +1010,7 @@ where
         trips1: TripleList<G, S, P>,
         trips2: &TripleList<G, S, P>,
     ) -> TripleList<G, S, P> {
-        eprintln!("trips1 {}, trips2 {}", trips1.len(), trips2.len());
+        // eprintln!("trips1 {}, trips2 {}", trips1.len(), trips2.len());
         if pNEW_INFO_OPT {
             if &trips1 == trips2 {
                 // something_dropped = true;
@@ -1041,11 +1045,51 @@ where
                     }
                 };
 
-                Self::tu_first_loop(&subsumes, trips1, trips2.iter())
+                Self::ff(&subsumes, trips1, trips2.iter())
             }
         } else {
             Self::union_byll(trips1, trips2.clone())
         }
+    }
+
+    fn ff(
+        subsumes: &impl Fn(&Triple<G, S, P>, &Triple<G, S, P>) -> isize,
+        second: TripleList<G, S, P>,
+        x: std::collections::linked_list::Iter<'_, Triple<G, S, P>>,
+    ) -> TripleList<G, S, P> {
+        let mut map: HashMap<G::Node, Vec<Triple<G, S, P>>> = HashMap::new();
+
+        for s in second {
+            if map.contains_key(&s.0) {
+                map.get_mut(&s.0).unwrap().push(s)
+            } else {
+                map.insert(s.0.clone(), vec![s]);
+            }
+        }
+
+        x.fold((), |_, next| {
+            if map.contains_key(&next.0) {
+                let ts = map.get(&next.0).unwrap().iter().cloned().collect_vec();
+                let ys = map.get_mut(&next.0).unwrap(); //only clones references
+
+                for y in ts {
+                    match subsumes(next, &y) {
+                        0 => {
+                            ys.push((*next).clone());
+                        }
+                        -1 => {}
+                        1 => break,
+                        _ => {
+                            panic!("Not possible")
+                        }
+                    }
+                }
+            } else {
+                map.insert(next.0.clone(), vec![next.clone()]);
+            }
+        });
+
+        map.into_iter().flat_map(|(_, y)| y).collect()
     }
 
     fn tu_first_loop(
@@ -1055,10 +1099,7 @@ where
     ) -> TripleList<G, S, P> {
         if let Some(tmpx) = x.next() {
             let xs = x;
-            let start = Instant::now();
-            let a = Self::tu_first_loop(subsumes, Self::tu_second_loop(subsumes, tmpx, second), xs);
-            eprintln!("time {:?}", start.elapsed());
-            a
+            Self::tu_first_loop(subsumes, Self::tu_second_loop(subsumes, tmpx, second), xs)
         } else {
             second
         }
@@ -1616,8 +1657,11 @@ where
                 first if first.is_empty() => Auok::Auok(y.clone()),
                 first => {
                     // eprintln!("s1 - {}, pre - {}", s1.len(), pre.len());
-                    let res = Self::triples_union(first, y);
-                    let new_info = setdiffll(&res, &y);
+                    let res = Self::triples_union(first.clone(), y);
+                    // let a = y.iter().collect_vec();
+                    // let new_info = setdiffll(&res, &y);
+                    let new_info = first;
+                    // let new_info = if !pNEW_INFO_OPT { first } else { setdiffll(&res, &y) };
                     // let new_info = first;
                     Self::satAU_f(dir, m, s1, reqst, &res, &new_info)
                 }

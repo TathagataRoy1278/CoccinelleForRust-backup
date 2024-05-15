@@ -20,9 +20,9 @@ fn ttree_to_expr_list(tt: String) -> Result<Vec<Snode>, &'static str> {
     );
 
     let mut rnode = wrap_root(&wrapped)?;
-    let mut args = rnode.children[0] //fn
-        .children[3] //blockexpr
-        .children[0] //stmtlist
+    
+    let mut args = rnode //souuce, fn
+        .children[3] //blockexpr, stmtlist
         .children[1] //callexpr
         .children
         .remove(1); //arglist

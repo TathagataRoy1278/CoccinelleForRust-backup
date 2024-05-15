@@ -149,6 +149,12 @@ pub fn addplustoenv(a: &Snode, b: &Rnode, env: &mut Environment) {
         Mcodekind::Minus(pluses) => {
             //This is a replacement
             if pluses.len() != 0 {
+                // eprintln!(
+                //     "shinonuga {}",
+                //     pluses
+                //         .iter()
+                //         .fold(String::new(), |mut acc, next| {acc.push_str(&next.getstring()); acc})
+                // );
                 env.modifiers.pluses.push((b.wrapper.info.charstart, true, pluses.clone()));
             }
         }

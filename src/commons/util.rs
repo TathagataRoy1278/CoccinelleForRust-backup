@@ -7,10 +7,12 @@ use ra_parser::SyntaxKind;
 use rand::random;
 
 use crate::{
-    ctl::ctl_engine::ENGINE_DOT_FILE, parsing_cocci::ast0::{Mcodekind, Snode}, parsing_rs::{
+    ctl::ctl_engine::ENGINE_DOT_FILE,
+    parsing_cocci::ast0::{Mcodekind, Snode},
+    parsing_rs::{
         ast_rs::{Rcode, Rnode},
         control_flow::Rflow,
-    }
+    },
 };
 
 use regex::Regex;
@@ -387,7 +389,7 @@ pub fn get_pluses_front(node: &Snode) -> Vec<Snode> {
     }
 }
 
-pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
+pub fn attach_pluses_front(node: &mut Snode, mut plus: Vec<Snode>) {
     if node.children.len() == 0 || !node.wrapper.metavar.isnotmeta() || node.wrapper.isdisj {
         //attach to a token or a metavar
         //a metavar does not always mean a token like an expr may be
@@ -406,10 +408,12 @@ pub fn attach_pluses_front(node: &mut Snode, plus: Vec<Snode>) {
         }
         match &mut node.wrapper.mcodekind {
             Mcodekind::Minus(a) => {
-                a.extend(plus);
+                plus.append(a);
+                *a = plus;
             }
             Mcodekind::Context(a, _) => {
-                a.extend(plus);
+                plus.append(a);
+                *a = plus;
             }
             _ => {}
         }

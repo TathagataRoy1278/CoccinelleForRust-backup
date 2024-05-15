@@ -200,6 +200,10 @@ impl Patch {
         self.minus = group_dots(&self.minus);
     }
 
+    pub fn process_dots(&mut self) {
+        process_dots_plus(&mut self.minus);
+    }
+
     //remove let from around the type
     pub fn striplet(&mut self, hastype: bool) {
         if !hastype {
@@ -499,6 +503,7 @@ fn handlerules(_rules: &Vec<Rule>, decl: Vec<&str>, lino: usize) -> (Name, Dep, 
 }
 
 // Gives ((a...b)...c)
+// This is important for process_dots_plus
 fn group_dots(snode: &Snode) -> Snode {
     if snode.children.is_empty() {
         return snode.clone();
@@ -593,6 +598,34 @@ fn group_dots(snode: &Snode) -> Snode {
     return snode;
 }
 
+fn process_dots_plus(snode: &mut Snode) {
+    if snode.children.is_empty() {
+        return;
+    }
+
+    fn aux(snode: &mut Snode, pluses: Vec<Snode>) {
+        if snode.is_dots {
+            aux(&mut snode.children[0], pluses);
+        }
+        else {
+            attach_pluses_back(snode, pluses);
+        }
+    }
+
+    if snode.is_dots {
+        if snode.wrapper.mcodekind.has_pluses() {
+            let pluses = snode.wrapper.mcodekind.getpluses();
+            aux(&mut snode.children[0], pluses.0);
+            attach_pluses_front(&mut snode.children[1], pluses.1);
+            // snode.children[1].wrapper.mcodekind.push_pluses_front(pluses.1);
+        }
+    }
+
+    for snode in &mut snode.children {
+        process_dots_plus(snode)
+    }
+}
+
 // fn group_dotss(snode: &mut Snode) {
 //     if snode.children.is_empty() {
 //         return;
@@ -651,6 +684,7 @@ fn getpatch(
     p.striplet(hastype);
     p.tag_plus();
     p.group_dots();
+    p.process_dots();
     p
 }
 

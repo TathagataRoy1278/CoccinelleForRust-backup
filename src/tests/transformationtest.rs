@@ -22,10 +22,13 @@ impl<'a> TransformTest<'a> {
             .expect("This shouldnt be empty.");
 
         let (rules, _, _) = processcocci(&patchstring);
-        let transformedcode =
-            transformation::transformfile(&CoccinelleForRust::parse(), &rules, rustcode)
-                .ok()
-                .unwrap();
+        let transformedcode = transformation::transformfile(
+            &CoccinelleForRust::parse_from(vec!["cfr", "--coccifile", "dummy1", "dummy2"]),
+            &rules,
+            rustcode,
+        )
+        .ok()
+        .unwrap();
         let rnode = processrs(&get_rcode(&transformedcode)).unwrap();
         return rnode;
     }

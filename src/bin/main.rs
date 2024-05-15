@@ -261,7 +261,9 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
 
     if true {
         let transform = |targetpath: &String| {
-            eprintln!("Processing {}", targetpath);
+            if args.verbose {
+                eprintln!("Processing {}", targetpath);
+            }
             let (rules, _, hasstars) = processcocci(&patchstring);
             //Currently have to parse cocci again because Rule has SyntaxNode which which has
             //rowan `NonNull<rowan::cursor::NodeData>` which cannot be shared between threads safely

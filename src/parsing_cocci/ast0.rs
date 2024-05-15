@@ -46,7 +46,7 @@ pub type Pluses = (Vec<Snode>, Vec<Snode>);
 
 impl Debug for Snode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.getstring())
+        write!(f, "{}:{:?}", self.getstring(), self.kinds())
     }
 }
 
@@ -108,7 +108,7 @@ impl<'a> Snode {
             }
         }
         snode.wrapper.mcodekind = mcodekind;
-        
+
         snode
     }
 
@@ -499,6 +499,14 @@ impl<'a> Mcodekind {
         }
     }
 
+    pub fn has_pluses(&self) -> bool {
+        match self {
+            Mcodekind::Minus(a) if !a.is_empty() => true,
+            Mcodekind::Context(a, b) if !a.is_empty() || !b.is_empty() => true,
+            _ => false,
+        }
+    }
+
     pub fn get_plusesbef_ref_mut(&'a mut self) -> &'a mut Vec<Snode> {
         match self {
             Mcodekind::Context(a, _) => a,
@@ -540,12 +548,16 @@ impl<'a> Mcodekind {
         }
     }
 
-    pub fn push_pluses_front(&mut self, pluses: Vec<Snode>) {
+    pub fn push_pluses_front(&mut self, mut pluses: Vec<Snode>) {
         match self {
             Mcodekind::Context(a, _) => {
-                a.extend(pluses);
+                pluses.append(a);
+                *a = pluses;
             }
-            Mcodekind::Minus(a) => a.extend(pluses),
+            Mcodekind::Minus(a) => {
+                pluses.append(a);
+                *a = pluses;
+            }
             _ => {
                 panic!("Cannot attach plus to Plus or Star nodes");
             }
