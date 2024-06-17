@@ -213,9 +213,7 @@ impl Patch {
         fn striplet_aux(node: &mut Snode) {
             //at this point node is a SourceFile
             //with a function with a stmtlist without braces
-            let stmtlist = &mut node.children[0] //function
-                .children[3] //blockexpr
-                .children[0]; //stmtlist
+            let stmtlist = &mut node.children[3]; //function
             if stmtlist.children.len() == 0 {
                 //handles empty type patches
                 //Either no type or only minus
