@@ -674,7 +674,24 @@ fn getpatch(
 ) -> Patch {
     let plusbuf = format!("{}{}", "\n".repeat(llino), plusbuf);
     let minusbuf = format!("{}{}", "\n".repeat(llino), minusbuf);
-    let mut p = Patch { plus: wrap_root(plusbuf.as_str()).unwrap(), minus: wrap_root(minusbuf.as_str()).unwrap() };
+    let mut p = Patch {
+        plus: {
+            match wrap_root(plusbuf.as_str()) {
+                Ok(node) => node,
+                Err(errstr) => {
+                    eprintln!("Error in parsing Plus Buffer: {}", errstr);
+                    panic!("Unparsable Semantic Patch")
+                }
+            }
+        },
+        minus: match wrap_root(minusbuf.as_str()) {
+            Ok(node) => node,
+            Err(errstr) => {
+                eprintln!("Error in parsing Minus Buffer: {}", errstr);
+                panic!("Unparsable Semantic Patch")
+            }
+        },
+    };
     p.setmetavars(metavars);
     p.setminus();
     get_body(&mut p.minus);

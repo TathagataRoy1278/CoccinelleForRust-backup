@@ -187,8 +187,8 @@ impl<'a> Snode {
         use SyntaxKind::*;
         let c = |a: &SyntaxKind| match a {
             ARRAY_TYPE | DYN_TRAIT_TYPE | FN_PTR_TYPE | FOR_TYPE | IMPL_TRAIT_TYPE | INFER_TYPE
-            | MACRO_TYPE | NEVER_TYPE | PAREN_TYPE | PATH_TYPE | PTR_TYPE | REF_TYPE
-            | SLICE_TYPE | TUPLE_TYPE => true,
+            | MACRO_TYPE | NEVER_TYPE | PAREN_TYPE | PATH_TYPE | PTR_TYPE | REF_TYPE | SLICE_TYPE
+            | TUPLE_TYPE => true,
             _ => false,
         };
 
@@ -218,16 +218,18 @@ impl<'a> Snode {
 
     pub fn isid(&self) -> bool {
         use SyntaxKind::*;
-        self.kinds().iter().any(|c| return *c == PATH || *c == NAME || *c == NAME_REF)
+        self.kinds()
+            .iter()
+            .any(|c| return *c == PATH || *c == NAME || *c == NAME_REF)
             || self.ispat()
     }
 
     pub fn ispat(&self) -> bool {
         use SyntaxKind::*;
         let c = |c: &SyntaxKind| match c {
-            IDENT_PAT | BOX_PAT | REST_PAT | LITERAL_PAT | MACRO_PAT | OR_PAT | PAREN_PAT
-            | PATH_PAT | WILDCARD_PAT | RANGE_PAT | RECORD_PAT | REF_PAT | SLICE_PAT
-            | TUPLE_PAT | TUPLE_STRUCT_PAT | CONST_BLOCK_PAT => true,
+            IDENT_PAT | BOX_PAT | REST_PAT | LITERAL_PAT | MACRO_PAT | OR_PAT | PAREN_PAT | PATH_PAT
+            | WILDCARD_PAT | RANGE_PAT | RECORD_PAT | REF_PAT | SLICE_PAT | TUPLE_PAT | TUPLE_STRUCT_PAT
+            | CONST_BLOCK_PAT => true,
             _ => false,
         };
 
@@ -238,9 +240,8 @@ impl<'a> Snode {
         use SyntaxKind::*;
 
         let c = |c: &SyntaxKind| match c {
-            CONST | ENUM | EXTERN_BLOCK | EXTERN_CRATE | FN | IMPL | MACRO_CALL | MACRO_RULES
-            | MACRO_DEF | MODULE | STATIC | STRUCT | TRAIT | TRAIT_ALIAS | TYPE_ALIAS | UNION
-            | USE => true,
+            CONST | ENUM | EXTERN_BLOCK | EXTERN_CRATE | FN | IMPL | MACRO_CALL | MACRO_RULES | MACRO_DEF
+            | MODULE | STATIC | STRUCT | TRAIT | TRAIT_ALIAS | TYPE_ALIAS | UNION | USE => true,
             _ => false,
         };
 
@@ -350,7 +351,10 @@ pub struct MetavarName {
 
 impl MetavarName {
     pub fn create_v() -> MetavarName {
-        MetavarName { rulename: String::from(""), varname: String::from("_v") }
+        MetavarName {
+            rulename: String::from(""),
+            varname: String::from("_v"),
+        }
     }
 
     pub fn is_v(&self) -> bool {
@@ -358,7 +362,10 @@ impl MetavarName {
     }
 
     pub fn new(name: String) -> MetavarName {
-        MetavarName { rulename: String::new(), varname: name }
+        MetavarName {
+            rulename: String::new(),
+            varname: name,
+        }
     }
 }
 
@@ -669,7 +676,10 @@ impl MetaVar {
 
     pub fn new(rulename: &str, name: &str, ty: &MetavarType, isinherited: bool) -> Option<MetaVar> {
         let minfo = (
-            MetavarName { rulename: rulename.to_string(), varname: name.to_string() },
+            MetavarName {
+                rulename: rulename.to_string(),
+                varname: name.to_string(),
+            },
             KeepBinding::UNITARY,
             isinherited,
         );
@@ -908,30 +918,38 @@ pub fn parsedisjs<'a>(_node: &mut Snode) {
     todo!()
 }
 
-pub fn wrap_root(contents: &str) -> Result<Snode, &'static str> {
+pub fn wrap_root(contents: &str) -> Result<Snode, String> {
     let lindex = LineIndex::new(contents);
 
     let parse = SourceFile::parse(contents);
     let errors = parse.errors();
+    let mut err_str = String::new();
 
-    for error in errors {
-        let lindex = lindex.line_col(error.range().start());
+    if !errors.is_empty() {
+        for error in errors {
+            let lindex = lindex.line_col(error.range().start());
 
-        // To Note:
-        // Skipping the next error is a hack to be able to parse
-        // fn func(param) { ... } as the compiler needs param to have
-        // type specified but the [Rust CFG] https://github.com/rust-lang/rust-analyzer/blob/master/crates/syntax/rust.ungram
-        // for param without type. This is for accomodating the parameter
-        // metavariable in the semantic patch. This will cause problems
-        // when someone actually makes this mistake and param is not a metavar
-        // Have to find a more elegant solution to this
+            // To Note:
+            // Skipping the next error is a hack to be able to parse
+            // fn func(param) { ... } as the compiler needs param to have
+            // type specified but the [Rust CFG] https://github.com/rust-lang/rust-analyzer/blob/master/crates/syntax/rust.ungram
+            // for param without type. This is for accomodating the parameter
+            // metavariable in the semantic patch. This will cause problems
+            // when someone actually makes this mistake and param is not a metavar
+            // Have to find a more elegant solution to this
 
-        if error.to_string().contains("missing type for function parameter") {
-            break;
+            if error.to_string().contains("missing type for function parameter") {
+                break;
+            }
+            err_str.push_str(&format!(
+                "Error : {} at line: {}, col {}\n",
+                error.to_string(),
+                lindex.line,
+                lindex.col
+            ));
+            err_str.push_str(&format!("{}\n", parse.syntax_node().to_string()));
         }
-        println!("Error : {} at line: {}, col {}", error.to_string(), lindex.line, lindex.col);
-        println!("{}", parse.syntax_node().to_string());
-        return Err("Unparsable");
+        return Err(err_str);
     }
 
     let root = SourceFile::parse(contents).syntax_node();

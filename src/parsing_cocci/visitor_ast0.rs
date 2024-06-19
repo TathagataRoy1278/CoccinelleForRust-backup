@@ -11,7 +11,7 @@ use super::ast0::{wrap_root, Snode};
 
 type Tag = SyntaxKind;
 
-fn ttree_to_expr_list(tt: String) -> Result<Vec<Snode>, &'static str> {
+fn ttree_to_expr_list(tt: String) -> Result<Vec<Snode>, String> {
     let wrapped = format!(
         "fn func() {{
             fcall({})
@@ -20,7 +20,7 @@ fn ttree_to_expr_list(tt: String) -> Result<Vec<Snode>, &'static str> {
     );
 
     let mut rnode = wrap_root(&wrapped)?;
-    
+
     let mut args = rnode //souuce, fn
         .children[3] //blockexpr, stmtlist
         .children[1] //callexpr
@@ -77,17 +77,13 @@ pub fn work_node<'a>(
                         Tag::WHITESPACE => {}
                         Tag::COMMENT => {
                             let commlen: usize = child.text_range().len().into();
-                            if commlen == 5 && lindex.line_col(child.text_range().start()).col == 0
-                            {
+                            if commlen == 5 && lindex.line_col(child.text_range().start()).col == 0 {
                                 //checks for /*?*/ modifiers
-                                modkind =
-                                    Some(String::from(child.to_string().as_bytes()[2] as char));
+                                modkind = Some(String::from(child.to_string().as_bytes()[2] as char));
                                 //in the next iteration the node gets the modkind
                             } else if child.to_string().eq(WILDCARD) {
-                                let mut wc = Snode::make_wildcard(super::ast0::Mcodekind::Context(
-                                    vec![],
-                                    vec![],
-                                )); //the mcode here is just a dummy
+                                let mut wc =
+                                    Snode::make_wildcard(super::ast0::Mcodekind::Context(vec![], vec![])); //the mcode here is just a dummy
 
                                 if modkind.is_some() {
                                     wc.wrapper.is_modded = true;
@@ -98,19 +94,17 @@ pub fn work_node<'a>(
                             }
                         }
                         Tag::TOKEN_TREE => {
-                            let mut exprlist =
-                                match ttree_to_expr_list(child.as_node().unwrap().to_string()) {
-                                    Ok(exprlist) => exprlist,
-                                    Err(_) => {
-                                        let snode =
-                                            work_node(lindex, wrap_node, child, modkind.clone());
-                                        children.push(snode);
-                                        continue;
-                                    }
-                                };
+                            let mut exprlist = match ttree_to_expr_list(child.as_node().unwrap().to_string())
+                            {
+                                Ok(exprlist) => exprlist,
+                                Err(_) => {
+                                    let snode = work_node(lindex, wrap_node, child, modkind.clone());
+                                    children.push(snode);
+                                    continue;
+                                }
+                            };
 
-                            let info =
-                                work_node(lindex, wrap_node, child, modkind.clone()).wrapper.info;
+                            let info = work_node(lindex, wrap_node, child, modkind.clone()).wrapper.info;
 
                             //position is fixed only for errors
                             exprlist.iter_mut().for_each(|x| {
