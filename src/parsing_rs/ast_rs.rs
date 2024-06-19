@@ -32,8 +32,7 @@ impl Rcode {
 
     pub fn writetotmpnamedfile(&self, randfile: &str) {
         let data = self.getstring();
-        fs::write(randfile, data.as_bytes())
-            .expect("The project directory must be writable by cfr");
+        fs::write(randfile, data.as_bytes()).expect("The project directory must be writable by cfr");
         //write!(randfile, "{}", &data).expect("The project directory must be writable by cfr.");
     }
 
@@ -172,7 +171,12 @@ impl<'a> Rnode {
         kind: Vec<SyntaxKind>,
         children: Vec<Rnode>,
     ) -> Rnode {
-        return Rnode { wrapper, astnode, kind, children };
+        return Rnode {
+            wrapper,
+            astnode,
+            kind,
+            children,
+        };
     }
 
     pub fn astnode(&self) -> Option<&SyntaxNode> {
@@ -200,7 +204,13 @@ impl<'a> Rnode {
     // }
 
     fn print_tree_aux(&self, pref: &String) {
-        println!("{}{:?}", pref, self.kinds());
+        println!(
+            "{}{:?}: {:?}-{:?}",
+            pref,
+            self.kinds(),
+            self.wrapper.info.sline,
+            self.wrapper.info.eline
+        );
         let mut newbuf = String::from(pref);
         newbuf.push_str(&String::from("--"));
         for child in &self.children {
@@ -278,7 +288,7 @@ impl<'a> Rnode {
                 data.push(' '); //THis is imp
             }
             // eprintln!("{:?}, {:?}", data, self.totoken());
-            data = remexspaces(data);
+            // data = remexspaces(data);
         }
 
         // Spaces before curent node
@@ -312,7 +322,7 @@ impl<'a> Rnode {
                 let dat = plusaft.getunformatted();
                 plussed1.push_str(dat.trim());
             }
-            plussed1 = remexspaces(plussed1);
+            // plussed1 = remexspaces(plussed1);
             data.push_str(&plussed1)
         }
 
@@ -357,9 +367,8 @@ impl<'a> Rnode {
         use SyntaxKind::*;
 
         let c = |c: &SyntaxKind| match c {
-            CONST | ENUM | EXTERN_BLOCK | EXTERN_CRATE | FN | IMPL | MACRO_CALL | MACRO_RULES
-            | MACRO_DEF | MODULE | STATIC | STRUCT | TRAIT | TRAIT_ALIAS | TYPE_ALIAS | UNION
-            | USE => true,
+            CONST | ENUM | EXTERN_BLOCK | EXTERN_CRATE | FN | IMPL | MACRO_CALL | MACRO_RULES | MACRO_DEF
+            | MODULE | STATIC | STRUCT | TRAIT | TRAIT_ALIAS | TYPE_ALIAS | UNION | USE => true,
             _ => false,
         };
 
@@ -377,9 +386,9 @@ impl<'a> Rnode {
 
     pub fn ispat(&self) -> bool {
         let c = |c: &SyntaxKind| match c {
-            IDENT_PAT | BOX_PAT | REST_PAT | LITERAL_PAT | MACRO_PAT | OR_PAT | PAREN_PAT
-            | PATH_PAT | WILDCARD_PAT | RANGE_PAT | RECORD_PAT | REF_PAT | SLICE_PAT
-            | TUPLE_PAT | TUPLE_STRUCT_PAT | CONST_BLOCK_PAT => true,
+            IDENT_PAT | BOX_PAT | REST_PAT | LITERAL_PAT | MACRO_PAT | OR_PAT | PAREN_PAT | PATH_PAT
+            | WILDCARD_PAT | RANGE_PAT | RECORD_PAT | REF_PAT | SLICE_PAT | TUPLE_PAT | TUPLE_STRUCT_PAT
+            | CONST_BLOCK_PAT => true,
             _ => false,
         };
 
@@ -391,8 +400,8 @@ impl<'a> Rnode {
 
         let c = |c: &SyntaxKind| match c {
             ARRAY_TYPE | DYN_TRAIT_TYPE | FN_PTR_TYPE | FOR_TYPE | IMPL_TRAIT_TYPE | INFER_TYPE
-            | MACRO_TYPE | NEVER_TYPE | PAREN_TYPE | PATH_TYPE | PTR_TYPE | REF_TYPE
-            | SLICE_TYPE | TUPLE_TYPE => true,
+            | MACRO_TYPE | NEVER_TYPE | PAREN_TYPE | PATH_TYPE | PTR_TYPE | REF_TYPE | SLICE_TYPE
+            | TUPLE_TYPE => true,
             //NAME is not a type but, since we want to alter struct/enum
             //definitions too we include that
             _ => false,
