@@ -11,8 +11,8 @@ use coccinelleforrust::parsing_cocci::parse_cocci::processcocci;
 use coccinelleforrust::parsing_rs::ast_rs::Rcode;
 use coccinelleforrust::parsing_rs::parse_rs::processrs;
 use coccinelleforrust::{
-    engine::cocci_vs_rs::MetavarBinding, engine::transformation,
-    interface::interface::CoccinelleForRust, parsing_cocci::ast0::Snode, parsing_rs::ast_rs::Rnode,
+    engine::cocci_vs_rs::MetavarBinding, engine::transformation, interface::interface::CoccinelleForRust,
+    parsing_cocci::ast0::Snode, parsing_rs::ast_rs::Rnode,
 };
 use env_logger::{Builder, Env};
 use itertools::{izip, Itertools};
@@ -116,8 +116,10 @@ fn getformattedfile(
 
     //-let randrustfile = format!("{}/tmp{}.rs", parent.display(), rng.gen::<u32>());
     let dirpath = parent.to_str().expect("Cannot get directory");
-    let randfile =
-        tempfile::Builder::new().tempfile_in(dirpath).expect("Cannot create temporary file.");
+    let randfile = tempfile::Builder::new()
+        .suffix(&std::process::id().to_string())
+        .tempfile_in(dirpath)
+        .expect("Cannot create temporary file.");
     let mut randrustfile = randfile.path().to_str().expect("Cannot get temporary file.");
 
     // In all cases, write the transformed code to a file so we can diff
@@ -183,13 +185,12 @@ fn getformattedfile(
         //if fcommand.spawn().expect("rustfmt failed").wait().is_err() {
         //  eprintln!("Formatting failed.");
         //}
-        let formattednode =
-            match processrs(&fs::read_to_string(&randrustfile).expect("Could not read")) {
-                Ok(rnode) => rnode,
-                Err(_) => {
-                    panic!("Cannot parse temporary file.");
-                }
-            };
+        let formattednode = match processrs(&fs::read_to_string(&randrustfile).expect("Could not read")) {
+            Ok(rnode) => rnode,
+            Err(_) => {
+                panic!("Cannot parse temporary file.");
+            }
+        };
         //let formattednode =
         //  processrs(&fs::read_to_string(&randrustfile).expect("Could not read")).unwrap();
 
@@ -220,12 +221,7 @@ fn getformattedfile(
     (formatted, diffed)
 }
 
-fn showdiff(
-    args: &CoccinelleForRust,
-    transformedcode: &mut Rcode,
-    targetpath: &str,
-    hasstars: bool,
-) {
+fn showdiff(args: &CoccinelleForRust, transformedcode: &mut Rcode, targetpath: &str, hasstars: bool) {
     let (data, diff) = getformattedfile(&args, transformedcode, &targetpath);
     if !hasstars {
         if !args.suppress_diff {
@@ -270,8 +266,8 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
             // let files_tmp = do_get_files(&args, &args.targetpath, &rules);
             // eprintln!("{:?}", files_tmp);
             // rules[0].patch.minus.print_tree();
-            let rcode = fs::read_to_string(&targetpath)
-                .expect(&format!("{} {}", "Could not read file", targetpath));
+            let rcode =
+                fs::read_to_string(&targetpath).expect(&format!("{} {}", "Could not read file", targetpath));
             let transformedcode = transformation::transformfile(args, &rules, rcode);
             let mut transformedcode = match transformedcode {
                 Ok(node) => node,
@@ -362,7 +358,10 @@ fn makechecks(args: &CoccinelleForRust) {
 fn findfmtconfig(args: &mut CoccinelleForRust) {
     let height_lim: usize = 5;
 
-    let mut target = Path::new(args.targetpath.as_str()).parent().unwrap().to_path_buf();
+    let mut target = Path::new(args.targetpath.as_str())
+        .parent()
+        .unwrap()
+        .to_path_buf();
     for _ in 0..height_lim {
         let paths = fs::read_dir(target.to_str().unwrap())
             .unwrap()
@@ -733,7 +732,10 @@ fn main() {
 
     let targetpath = Path::new(&args.targetpath);
     if targetpath.is_file() {
-        transformfiles(&args, &[String::from(canonicalize(targetpath).unwrap().to_str().unwrap())]);
+        transformfiles(
+            &args,
+            &[String::from(canonicalize(targetpath).unwrap().to_str().unwrap())],
+        );
     } else {
         let mut files = vec![];
         let _ = visit_dirs(targetpath, &args.ignore, &mut |f: &DirEntry| {
