@@ -253,7 +253,9 @@ fn showdiff(args: &CoccinelleForRust, transformedcode: &mut Rcode, targetpath: &
 
 fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
     let patchstring = fs::read_to_string(&args.coccifile).expect("Could not read file.");
-    // let (_, needsti, _) = processcocci(&patchstring);
+
+    //Running this once in to check if the patch is valid
+    let _ = processcocci(&patchstring);
 
     if true {
         let transform = |targetpath: &String| {
