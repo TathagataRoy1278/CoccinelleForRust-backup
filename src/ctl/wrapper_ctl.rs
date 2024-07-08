@@ -44,6 +44,27 @@ impl CTL {
 
 type Tag = SyntaxKind;
 
+macro_rules! AND {
+    ($a: expr, $b: expr) => {
+        Box::new(CTL::And(Strict::Strict, $a, $b))
+    };
+}
+macro_rules! AX {
+    ($a: expr) => {
+        Box::new(CTL::AX(Direction::Forward, Strict::Strict, $a))
+    };
+}
+macro_rules! OR {
+    ($a: expr, $b: expr) => {
+        Box::new(CTL::Or($a, $b))
+    };
+}
+macro_rules! EX {
+    ($a: expr) => {
+        Box::new(CTL::EX(Direction::Forward, $a))
+    };
+}
+
 fn dots_has_mv(dots: &Snode) -> bool {
     dots.children[1].wrapper.metavar.ismeta()
 }
@@ -59,25 +80,20 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         Box::new(fctl)
     }
 
-    fn handle_dots(
-        dots: &Snode,
-        attach_end: Option<Box<CTL>>,
-        pim: bool,
-        ln: &mut usize,
-    ) -> Box<CTL> {
+    fn handle_dots(dots: &Snode, attach_end: Option<Box<CTL>>, pim: bool, ln: &mut usize) -> Box<CTL> {
         if dots.children[0].has_kind(&Tag::L_CURLY) && dots.children[1].has_kind(&Tag::R_CURLY) {
             let a2 = aux(&dots.children[1], attach_end, false, ln); // }
-            let tmp = Box::new(CTL::And(
-                Strict::Strict,
-                Box::new(CTL::Pred(Predicate::AfterNode)),
-                Box::new(CTL::AX(Direction::Forward, Strict::Strict, a2)),
-            )); // After & AX(})
-            let tmp = Box::new(CTL::EX(Direction::Forward, tmp)); // Ex (After & AX (}))
-                                                                  // eprintln!("ln - {}", ln);
+            let tmp = AND!(Box::new(CTL::Pred(Predicate::AfterNode)), AX!(a2)); // After & AX(})
+            let tmp = EX![tmp]; // Ex (After & AX (}))
+                                // eprintln!("ln - {}", ln);
             let a1 = aux(&dots.children[0], None, pim, ln);
             // eprintln!("ln2 - {}", ln);
             let a1 = Box::new(CTL::And(Strict::Strict, a1, tmp));
-            return Box::new(CTL::Exists(false, MetavarName::new(format!("l{}", (*ln + 1))), a1));
+            return Box::new(CTL::Exists(
+                false,
+                MetavarName::new(format!("l{}", (*ln + 1))),
+                a1,
+            ));
         }
 
         //Everything in the comments assume a...b
@@ -166,17 +182,16 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         }
     }
 
-    fn aux(
-        snode: &Snode,
-        attach_end: Option<Box<CTL>>,
-        prev_is_mvar: bool,
-        ln: &mut usize,
-    ) -> Box<CTL> {
+    fn aux(snode: &Snode, attach_end: Option<Box<CTL>>, prev_is_mvar: bool, ln: &mut usize) -> Box<CTL> {
         if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
             if !snode.is_dots {
                 //Sets the modif
                 let tmpp = if snode.wrapper.is_modded {
-                    Box::new(CTL::Pred(Predicate::Match(snode.clone(), Modif::Modif, prev_is_mvar)))
+                    Box::new(CTL::Pred(Predicate::Match(
+                        snode.clone(),
+                        Modif::Modif,
+                        prev_is_mvar,
+                    )))
                 } else {
                     Box::new(CTL::Pred(Predicate::Match(
                         snode.clone(),
@@ -221,18 +236,10 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                         //this also adds the OR AfterNode condition for all
                         //left braces other than { but that should not be a problem right?
                         //Since AfterNodes only appear for {s
-                        let nextctl = Box::new(CTL::And(
-                            Strict::Strict,
+                        let nextctl = AND!(
                             tmpp,
-                            Box::new(CTL::AX(
-                                Direction::Forward,
-                                Strict::Strict,
-                                Box::new(CTL::Or(
-                                    attach_end,
-                                    Box::new(CTL::Pred(Predicate::AfterNode)),
-                                )),
-                            )),
-                        ));
+                            AX!(OR!(attach_end, Box::new(CTL::Pred(Predicate::AfterNode))))
+                        );
 
                         Box::new(CTL::Exists(
                             false,
@@ -254,10 +261,12 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
                 //if there was a lparan this adds the exists lx term
 
-                if snode.wrapper.metavar.ismeta()
-                    && snode.wrapper.freevars.contains(&snode.wrapper.metavar)
-                {
-                    Box::new(CTL::Exists(true, snode.wrapper.metavar.getminfo().0.clone(), nextctl))
+                if snode.wrapper.metavar.ismeta() && snode.wrapper.freevars.contains(&snode.wrapper.metavar) {
+                    Box::new(CTL::Exists(
+                        true,
+                        snode.wrapper.metavar.getminfo().0.clone(),
+                        nextctl,
+                    ))
                 } else {
                     nextctl
                 }
@@ -267,6 +276,103 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         } else if snode.children.len() == 1 {
             let ctl = aux(&snode.children[0], attach_end, false, ln);
             get_kind_pred(ctl, snode.kinds(), prev_is_mvar)
+        } else if snode.kinds().ends_with(&[SyntaxKind::IF_EXPR]) {
+            let skind = snode.kinds();
+            let mut rev_iter = snode.children.iter().rev().peekable();
+            let mut snode = rev_iter.next().unwrap();
+            let prev_node = rev_iter.peek().unwrap();
+
+            let ifexprctl = if prev_node.has_kind(&SyntaxKind::ELSE_KW) {
+                //has else part
+                let mut spb =
+                    prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
+                let ctl = aux(snode, attach_end.clone(), spb, ln);
+
+                snode = rev_iter.next().unwrap();
+                // ^ else keyword
+                spb = rev_iter.peek().map_or(false, |x| {
+                    x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                });
+                let falsebranch = aux(snode, Some(ctl), spb, ln);
+                // ^ this ctl is the else branch
+                let mut ctl: Box<CTL>;
+
+                snode = rev_iter.next().unwrap();
+                spb = rev_iter.peek().map_or(false, |x| {
+                    x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                });
+                let truebranch = aux(snode, attach_end, spb, ln);
+                // ^ true block
+
+                let suffix = Box::new(CTL::And(
+                    Strict::Strict,
+                    Box::new(CTL::EX(Direction::Forward, falsebranch)),
+                    Box::new(CTL::EX(Direction::Forward, truebranch)),
+                ));
+
+                snode = rev_iter.next().unwrap();
+                spb = rev_iter.peek().map_or(false, |x| {
+                    x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                });
+                ctl = aux(snode, Some(suffix), spb, ln);
+                // ^ condition
+
+                snode = rev_iter.next().unwrap();
+                spb = rev_iter.peek().map_or(false, |x| {
+                    x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                });
+                ctl = aux(snode, Some(ctl), spb, ln);
+                // ^ if keyword
+
+                while rev_iter.len() != 0 {
+                    //takes care of the attributes
+                    // let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
+                    // ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
+
+                    snode = rev_iter.next().unwrap();
+                    spb = rev_iter.peek().map_or(false, |x| {
+                        x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                    });
+                    ctl = aux(snode, Some(ctl), spb, ln);
+                }
+
+                ctl
+            } else {
+                //no else part
+                let mut spb =
+                    prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
+                let mut ctl = aux(snode, attach_end, spb, ln);
+
+                snode = rev_iter.next().unwrap();
+                // ^ condition
+                spb = rev_iter.peek().map_or(false, |x| {
+                    x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                });
+                let truebranch = aux(snode, Some(ctl), spb, ln);
+                let truebranch = Box::new(CTL::EX(Direction::Forward, truebranch));
+
+                snode = rev_iter.next().unwrap();
+                spb = rev_iter.peek().map_or(false, |x| {
+                    x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                });
+                ctl = aux(snode, Some(truebranch), spb, ln);
+                // ^ if keyword
+
+                while rev_iter.len() != 0 {
+                    //takes care of the attributes
+                    // let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
+                    // ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
+
+                    snode = rev_iter.next().unwrap();
+                    spb = rev_iter.peek().map_or(false, |x| {
+                        x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
+                    });
+                    ctl = aux(snode, Some(ctl), spb, ln);
+                }
+                ctl
+            };
+
+            get_kind_pred(ifexprctl, skind, prev_is_mvar)
         } else {
             let skind = snode.kinds();
             let mut rev_iter = snode.children.iter().rev().peekable();
@@ -277,8 +383,8 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             //All comments are preceded and succeeded by other nodes
             //on the same level. I know it sounds weird.
 
-            let mut spb = prev_node.wrapper.metavar.ismeta()
-                || (prev_node.is_dots && dots_has_mv(&prev_node));
+            let mut spb =
+                prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
             let mut ctl = aux(snode, attach_end, spb, ln);
             // let mut spb: bool;
 
