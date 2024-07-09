@@ -147,21 +147,31 @@ fn getformattedfile(
         // are just references to it.
 
         let output: Output;
-        let mut core_command = Command::new("rustfmt");
+        let mut core_command = Command::new("rustup");
         if let Some(fmtconfig_path) = &cfr.rustfmt_config {
             let fmtconfp = format!("--config-path {}", fmtconfig_path.as_str());
             output = core_command
+                .arg("run")
+                .arg("nightly")
+                .arg("--")
                 .arg(&randrustfile)
                 .arg("--edition")
                 .arg("2021")
+                .arg("--skip-children")
+                .arg("--unstable-features")
                 .arg(fmtconfp)
                 .output()
                 .expect("rustfmt failed");
         } else {
             output = core_command
+                .arg("run")
+                .arg("nightly")
+                .arg("--")
                 .arg(&randrustfile)
                 .arg("--edition")
                 .arg("2021")
+                .arg("--skip-children")
+                .arg("--unstable-features")
                 .output()
                 .expect("rustfmt failed");
         }
@@ -173,10 +183,6 @@ fn getformattedfile(
                     String::from_utf8(output.stderr).unwrap_or(String::from("NONE"))
                 );
             }
-        }
-        {
-            // let s = fs::read_to_string(&randrustfile);
-            // eprintln!("wjere = {}", s.unwrap());
         }
         //if let Some(fmtconfig_path) = &cfr.rustfmt_config {
         //  fcommand = fcommand.arg("--config-path").arg(fmtconfig_path.as_str());
@@ -257,91 +263,41 @@ fn transformfiles(args: &CoccinelleForRust, files: &[String]) {
     //Running this once in to check if the patch is valid
     let _ = processcocci(&patchstring);
 
-    if true {
-        let transform = |targetpath: &String| {
-            if args.verbose {
-                eprintln!("Processing {}", targetpath);
-            }
-            let (rules, _, hasstars) = processcocci(&patchstring);
-            //Currently have to parse cocci again because Rule has SyntaxNode which which has
-            //rowan `NonNull<rowan::cursor::NodeData>` which cannot be shared between threads safely
-            // let files_tmp = do_get_files(&args, &args.targetpath, &rules);
-            // eprintln!("{:?}", files_tmp);
-            // rules[0].patch.minus.print_tree();
-            let rcode =
-                fs::read_to_string(&targetpath).expect(&format!("{} {}", "Could not read file", targetpath));
-            let transformedcode = transformation::transformfile(args, &rules, rcode);
-            let mut transformedcode = match transformedcode {
-                Ok(node) => node,
-                Err(error) => {
-                    //failedfiles.push((error, targetpath));
-                    match error {
-                        TARGETERROR(msg, _) => eprintln!("{}", msg),
-                        RULEERROR(msg, error, _) => {
-                            println!("Transformation Error at rule {} : {}", msg, error)
-                        }
-                    }
-                    println!("Failed to transform {}", targetpath);
-                    return;
-                }
-            };
-            showdiff(args, &mut transformedcode, targetpath, hasstars);
-        };
-
-        if !args.no_parallel {
-            files.par_iter().for_each(transform);
-        } else {
-            files.iter().for_each(transform);
+    let transform = |targetpath: &String| {
+        if args.verbose {
+            eprintln!("Processing {}", targetpath);
         }
-    } else {
-        // if files.len() == 0 {
-        //     return;
-        // }
-
-        // let (host, vfs) = gettypedb(&files[0]);
-        // let db = host.raw_database();
-        // //let semantics = &mut Semantics::new(db);
-        // let semantics = &Semantics::new(db);
-
-        // let transform = |targetpath: &String| {
-        //     let (rules, _needsti, hasstars) = processcocci(&patchstring);
-        //     let fileid = vfs
-        //         .file_id(&VfsPath::new_real_path(targetpath.clone()))
-        //         .expect(&format!("Could not get FileId for file {}", &targetpath));
-        //     let syntaxnode = semantics.parse_or_expand(fileid.into());
-        //     let rcode = fs::read_to_string(targetpath).expect("Could not read file");
-
-        //     let mut rnode = processrswithsemantics(&rcode, syntaxnode)
-        //         .expect("Could not convert SyntaxNode to Rnode");
-
-        //     set_types(&mut rnode, semantics, db);
-
-        //     let transformedcode = transformation::transformrnodes(&rules, rnode);
-
-        //     let mut transformedcode = match transformedcode {
-        //         Ok(node) => node,
-        //         Err(error) => {
-        //             //failedfiles.push((error, targetpath));
-        //             match error {
-        //                 TARGETERROR(msg, _) => eprintln!("{}", msg),
-        //                 RULEERROR(msg, error, _) => eprintln!("{}:{}", msg, error),
-        //             }
-        //             println!("Failed to transform {}", targetpath);
-        //             return;
-        //         }
-        //     };
-
-        //     showdiff(args, &mut transformedcode, targetpath, hasstars);
-        //     //transformrnode(&rules, rnode);
-        // };
-
-        // if !args.no_parallel {
-        //     todo!("Parallel for type inference has not been implemented.");
-        //     //files.par_iter().for_each(transform);
-        // } else {
-        //     files.iter().for_each(transform);
-        // }
+        let (rules, _, hasstars) = processcocci(&patchstring);
+        //Currently have to parse cocci again because Rule has SyntaxNode which which has
+        //rowan `NonNull<rowan::cursor::NodeData>` which cannot be shared between threads safely
+        // let files_tmp = do_get_files(&args, &args.targetpath, &rules);
+        // eprintln!("{:?}", files_tmp);
+        // rules[0].patch.minus.print_tree();
+        let rcode =
+            fs::read_to_string(&targetpath).expect(&format!("{} {}", "Could not read file", targetpath));
+        let transformedcode = transformation::transformfile(args, &rules, rcode);
+        let mut transformedcode = match transformedcode {
+            Ok(node) => node,
+            Err(error) => {
+                //failedfiles.push((error, targetpath));
+                match error {
+                    TARGETERROR(msg, _) => eprintln!("{}", msg),
+                    RULEERROR(msg, error, _) => {
+                        println!("Transformation Error at rule {} : {}", msg, error)
+                    }
+                }
+                println!("Failed to transform {}", targetpath);
+                return;
+            }
+        };
+        showdiff(args, &mut transformedcode, targetpath, hasstars);
     };
+
+    if !args.no_parallel {
+        files.par_iter().for_each(transform);
+    } else {
+        files.iter().for_each(transform);
+    }
 }
 
 fn makechecks(args: &CoccinelleForRust) {
