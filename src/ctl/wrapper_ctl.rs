@@ -80,6 +80,7 @@ fn dots_has_mv(dots: &Snode) -> bool {
 
 enum Connector {
     CAX,
+    NIL,
     CEX,
     _CAG,
 }
@@ -87,11 +88,7 @@ enum Connector {
 pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
     fn get_kind_pred(ctl: Box<CTL>, kind: &Vec<SyntaxKind>, prev_is_mvar: bool) -> Box<CTL> {
         let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind.clone(), prev_is_mvar)));
-        let fctl = CTL::And(
-            Strict::Strict,
-            kind_pred,
-            Box::new(CTL::AX(Direction::Forward, Strict::Strict, ctl)),
-        );
+        let fctl = CTL::And(Strict::Strict, kind_pred, AX!(ctl));
         Box::new(fctl)
     }
 
@@ -256,17 +253,13 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                         //left braces other than { but that should not be a problem right?
                         //Since AfterNodes only appear for {s
                         let connector = match connector {
-                            Connector::CAX => {
-                                AX!(OR!(attach_end, Box::new(CTL::Pred(Predicate::AfterNode))))
-                            },
+                            Connector::CAX => AX!(OR!(attach_end, Box::new(CTL::Pred(Predicate::AfterNode)))),
+                            Connector::NIL => OR!(attach_end, Box::new(CTL::Pred(Predicate::AfterNode))),
                             Connector::CEX => EX!(OR!(attach_end, Box::new(CTL::Pred(Predicate::AfterNode)))),
                             Connector::_CAG => todo!(),
                         };
-                        
-                        let nextctl = AND!(
-                            tmpp,
-                            connector
-                        );
+
+                        let nextctl = AND!(tmpp, connector);
 
                         Box::new(CTL::Exists(
                             false,
@@ -274,11 +267,14 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                             nextctl,
                         ))
                     } else {
-                        let nextctl = AND!(
-                            tmpp,
-                            Box::new(CTL::AX(Direction::Forward, Strict::Strict, attach_end))
-                        );
+                        let connector = match connector {
+                            Connector::CAX => AX!(attach_end),
+                            Connector::NIL => attach_end,
+                            Connector::CEX => EX!(attach_end),
+                            Connector::_CAG => todo!(),
+                        };
 
+                        let nextctl = AND!(tmpp, connector);
                         nextctl
                     }
                 } else {
@@ -330,16 +326,13 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 let truebranch = aux!(snode, attach_end, spb, ln);
                 // ^ true block
 
-                let suffix = AND!(
-                    Box::new(CTL::EX(Direction::Forward, falsebranch)),
-                    Box::new(CTL::EX(Direction::Forward, truebranch))
-                );
+                let suffix = AND!(EX!(truebranch), EX!(falsebranch));
 
                 snode = rev_iter.next().unwrap();
                 spb = rev_iter.peek().map_or(false, |x| {
                     x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
                 });
-                ctl = aux!(snode, Some(suffix), spb, ln);
+                ctl = aux!(snode, Some(suffix), spb, ln, Connector::NIL);
                 // ^ condition
 
                 snode = rev_iter.next().unwrap();
@@ -373,8 +366,8 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 spb = rev_iter.peek().map_or(false, |x| {
                     x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
                 });
-                let truebranch = aux!(snode, Some(ctl), spb, ln);
-                let truebranch = Box::new(CTL::EX(Direction::Forward, truebranch));
+
+                let truebranch = aux!(snode, Some(ctl), spb, ln, Connector::CEX);
 
                 snode = rev_iter.next().unwrap();
                 spb = rev_iter.peek().map_or(false, |x| {
@@ -410,7 +403,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
             let mut spb =
                 prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
-            let mut ctl = aux!(snode, attach_end, spb, ln);
+            let mut ctl = aux!(snode, attach_end, spb, ln, connector);
             // let mut spb: bool;
 
             while rev_iter.len() != 0 {
