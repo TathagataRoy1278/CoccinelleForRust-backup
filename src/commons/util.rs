@@ -483,7 +483,7 @@ pub fn debug_spaces(node: &mut Rnode) {
     });
 }
 
-pub fn remexspaces(mut s: String) -> String {
+pub fn remexspaces_(mut s: String) -> String {
     for punctuation in PUNCTUATIONS {
         let old = format!(" *\\{} *", punctuation);
         let new = format!("{}", punctuation);

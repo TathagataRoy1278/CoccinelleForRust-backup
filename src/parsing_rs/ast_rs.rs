@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 use SyntaxKind::*;
 
 use crate::commons::info;
-use crate::commons::util::{get_rcode, remexspaces};
+use crate::commons::util::get_rcode;
 
 type VirtualPosition = (info::ParseInfo, usize);
 
@@ -229,9 +229,8 @@ impl<'a> Rnode {
 
         //pluses before current node
         for plusbef in &self.wrapper.plussed.0 {
-            eprintln!("high int===================================================o the sky");
-            let mut dat = plusbef.getstring();
-            dat = remexspaces(dat);
+            let dat = plusbef.getstring();
+            // dat = remexspaces(dat);
             data.push_str(&dat);
             data.push(' ');
         }
@@ -261,10 +260,8 @@ impl<'a> Rnode {
 
         //plusses after current node
         for plusaft in &self.wrapper.plussed.1 {
-            eprintln!("high into the sky");
-
-            let mut dat = plusaft.getstring();
-            dat = remexspaces(dat);
+            let dat = plusaft.getstring();
+            // dat = remexspaces(dat);
             data.push_str(&dat);
         }
 
@@ -273,7 +270,7 @@ impl<'a> Rnode {
 
     pub fn getunformatted(&self) -> String {
         // Note
-        // All consecuting pluses are printed in one line
+        // All consecutive pluses are printed in one line
         // seperated by only spaces
 
         let mut data = String::new();

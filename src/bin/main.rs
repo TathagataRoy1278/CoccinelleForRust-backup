@@ -126,12 +126,6 @@ fn getformattedfile(
     //VERY IMPORTANT :-
     //CHECK TO REMOVE THIS FILE FOR ALL ERROR CASES
     transformedcode.writetotmpnamedfile(&randrustfile);
-    debugcocci!(
-        (|| {
-            fs::write("/tmp/tmp_CFR_COCCI.rs", transformedcode.getunformatted())
-                .expect("Failed to write to tmp");
-        })
-    );
     // Now, optionally, we may want to not rust-format the code.
     if !cfr.suppress_formatting {
         //should never be disabled except for debug
@@ -154,6 +148,7 @@ fn getformattedfile(
                 .arg("run")
                 .arg("nightly")
                 .arg("--")
+                .arg("rustfmt")
                 .arg(&randrustfile)
                 .arg("--edition")
                 .arg("2021")
@@ -167,6 +162,7 @@ fn getformattedfile(
                 .arg("run")
                 .arg("nightly")
                 .arg("--")
+                .arg("rustfmt")
                 .arg(&randrustfile)
                 .arg("--edition")
                 .arg("2021")
@@ -182,6 +178,10 @@ fn getformattedfile(
                     "RUSTFMT ERR - {}",
                     String::from_utf8(output.stderr).unwrap_or(String::from("NONE"))
                 );
+            } else {
+                eprintln!("[Warning] Some files may not have been properly formatted.\
+                An error was encuontered while running rustfmt. \
+                Please use the --show-fmt-errors flag to view them");
             }
         }
         //if let Some(fmtconfig_path) = &cfr.rustfmt_config {
