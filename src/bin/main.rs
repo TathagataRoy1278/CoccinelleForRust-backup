@@ -179,9 +179,12 @@ fn getformattedfile(
                     String::from_utf8(output.stderr).unwrap_or(String::from("NONE"))
                 );
             } else {
-                eprintln!("[Warning] Some files may not have been properly formatted.\
-                An error was encuontered while running rustfmt. \
-                Please use the --show-fmt-errors flag to view them");
+                debugcocci!(
+                        eprintln!(
+                        "[Warning] Some files may not have been properly formatted.\
+                        An error was encuontered while running rustfmt. \
+                        Please use the --show-fmt-errors flag to view them");
+                );
             }
         }
         //if let Some(fmtconfig_path) = &cfr.rustfmt_config {

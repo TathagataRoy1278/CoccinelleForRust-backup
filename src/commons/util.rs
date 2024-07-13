@@ -60,9 +60,9 @@ macro_rules! debugcocci {
         }
     };
 
-    ($closure:tt) => {
+    ($closure:stmt;) => {
         if log::log_enabled!(log::Level::Debug) {
-            $closure()
+            $closure
         }
     }
 }
