@@ -4,7 +4,7 @@ use std::{
     marker::PhantomData,
 };
 
-use super::ctl_engine::{Pred, CTL};
+// use super::ctl_engine::{Pred, CTL};
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Strict {
@@ -262,9 +262,9 @@ impl<State: Eq + Clone, Subst: Eq + Clone + Ord, Anno: Eq + Clone> PartialOrd
             }
             (wit1, GenericWitnessTree::NegWit(wit2)) => wit1.partial_cmp(&wit2),
             (GenericWitnessTree::NegWit(wit1), wit2) => (**wit1).partial_cmp(wit2),
-            (GenericWitnessTree::NegWit(wit1), GenericWitnessTree::NegWit(wit2)) => {
-                wit1.partial_cmp(wit2)
-            }
+            // (GenericWitnessTree::NegWit(wit1), GenericWitnessTree::NegWit(wit2)) => {
+            //     wit1.partial_cmp(wit2)
+            // }
         }
     }
 }
@@ -279,7 +279,7 @@ impl<State: Eq + Clone, Subst: Eq + Clone + Ord, Anno: Eq + Clone> Ord
             }
             (wit1, GenericWitnessTree::NegWit(wit2)) => wit1.cmp(&wit2),
             (GenericWitnessTree::NegWit(wit1), wit2) => (**wit1).cmp(wit2),
-            (GenericWitnessTree::NegWit(wit1), GenericWitnessTree::NegWit(wit2)) => wit1.cmp(wit2),
+            // (GenericWitnessTree::NegWit(wit1), GenericWitnessTree::NegWit(wit2)) => wit1.cmp(wit2),
         }
     }
 }

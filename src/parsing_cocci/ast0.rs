@@ -389,13 +389,13 @@ pub enum MODKIND {
     STAR,
 }
 
-#[derive(Clone, PartialEq)]
-pub struct TokenInfo {
-    tline_start: usize,
-    tline_end: usize,
-    left_offset: usize,
-    right_offset: usize,
-}
+// #[derive(Clone, PartialEq)]
+// pub struct TokenInfo {
+//     tline_start: usize,
+//     tline_end: usize,
+//     left_offset: usize,
+//     right_offset: usize,
+// }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct PositionInfo {
