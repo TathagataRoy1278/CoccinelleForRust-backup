@@ -164,13 +164,26 @@ impl<'a> Snode {
     }
 
     fn print_tree_aux(&self, pref: &String) {
-        println!(
-            "{}{:?}, {:?}: {:?}",
-            pref,
-            self.kinds(),
-            self.wrapper.mcodekind,
-            self.wrapper.metavar
-        );
+        if self.is_dots {
+            println!(
+                "{}DOTS, {:?}: {:?}",
+                pref, self.wrapper.mcodekind, self.wrapper.metavar
+            );
+        } else if self.is_fake {
+            println!(
+                "{}FAKE, {:?}: {:?}",
+                pref, self.wrapper.mcodekind, self.wrapper.metavar
+            );
+        } else {
+            println!(
+                "{}{:?}, {:?}: {:?}",
+                pref,
+                self.kinds(),
+                self.wrapper.mcodekind,
+                self.wrapper.metavar
+            );
+        }
+
         let mut newbuf = String::from(pref);
         newbuf.push_str(&String::from("--"));
         for child in &self.children {

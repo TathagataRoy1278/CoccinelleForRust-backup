@@ -60,10 +60,10 @@ macro_rules! EX {
 
 macro_rules! aux {
     ($a: expr, $b: expr, $c: expr, $d: expr) => {
-        aux($a, $b, $c, $d, Connector::CAX)
+        aux($a, $b, $c, $d, Connector::CAX, WrapperOptions::None)
     };
-    ($a: expr, $b: expr, $c: expr, $d: expr, $e: expr) => {
-        aux($a, $b, $c, $d, $e)
+    ($a: expr, $b: expr, $c: expr, $d: expr, $e: expr, $f: expr) => {
+        aux($a, $b, $c, $d, $e, $f)
     };
 }
 
@@ -85,6 +85,11 @@ enum Connector {
     _CAG,
 }
 
+enum WrapperOptions {
+    None,
+    NoParenMvar,
+}
+
 pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
     fn get_kind_pred(ctl: Box<CTL>, kind: &Vec<SyntaxKind>, prev_is_mvar: bool) -> Box<CTL> {
         let kind_pred = Box::new(CTL::Pred(Predicate::Kind(kind.clone(), prev_is_mvar)));
@@ -93,6 +98,8 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
     }
 
     fn handle_dots(dots: &Snode, attach_end: Option<Box<CTL>>, pim: bool, ln: &mut usize) -> Box<CTL> {
+        // The parent_kinds is not required for dots children
+        // So it is okay to set any value
         if dots.children[0].has_kind(&Tag::L_CURLY) && dots.children[1].has_kind(&Tag::R_CURLY) {
             let a2 = aux!(&dots.children[1], attach_end, false, ln); // }
             let tmp = AND!(Box::new(CTL::Pred(Predicate::AfterNode)), AX!(a2)); // After & AX(})
@@ -108,6 +115,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             ));
         }
 
+        //This is just for
         //Everything in the comments assume a...b
 
         //a
@@ -199,7 +207,9 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         attach_end: Option<Box<CTL>>,
         prev_is_mvar: bool,
         ln: &mut usize,
+        //optional args
         connector: Connector,
+        options: WrapperOptions,
     ) -> Box<CTL> {
         if snode.children.is_empty() || snode.wrapper.metavar.ismeta() || snode.is_dots {
             if !snode.is_dots {
@@ -229,16 +239,18 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 //if the node is one of the braces, add a label to it
                 let kind = snode.kinds().last().unwrap();
                 let lname;
-                if L_BROS.contains(kind) {
-                    lname = format!("l{}", ln);
-                    *ln -= 1;
-                    tmpp = (*tmpp).add_paren(lname);
-                } else if R_BROS.contains(kind) {
-                    //Rs
-                    *ln += 1;
-                    lname = format!("l{}", ln);
-                    tmpp = (*tmpp).add_paren(lname);
-                };
+                if !matches!(options, WrapperOptions::NoParenMvar) {
+                    if L_BROS.contains(kind) {
+                        lname = format!("l{}", ln);
+                        *ln -= 1;
+                        tmpp = (*tmpp).add_paren(lname);
+                    } else if R_BROS.contains(kind) {
+                        //Rs
+                        *ln += 1;
+                        lname = format!("l{}", ln);
+                        tmpp = (*tmpp).add_paren(lname);
+                    };
+                }
 
                 //propagates
                 let nextctl = if let Some(mut attach_end) = attach_end {
@@ -296,10 +308,15 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 handle_dots(snode, attach_end, prev_is_mvar, ln)
             }
         } else if snode.children.len() == 1 {
+            // eprintln!("{:?}:{:?}", snode.children, snode.children[0].kinds());
+            
+            // No specific checks like for IF ann Binexpr have been put here
+            // because only artifical nodes like fake and dots can be single
+            // children
             let ctl = aux!(&snode.children[0], attach_end, false, ln);
             get_kind_pred(ctl, snode.kinds(), prev_is_mvar)
-        } else if snode.kinds().ends_with(&[SyntaxKind::IF_EXPR]) {
-            let skind = snode.kinds();
+        } else if snode.has_kind(&SyntaxKind::IF_EXPR) {
+            let parent_kinds = snode.kinds();
             let mut rev_iter = snode.children.iter().rev().peekable();
             let mut snode = rev_iter.next().unwrap();
             let prev_node = rev_iter.peek().unwrap();
@@ -332,7 +349,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 spb = rev_iter.peek().map_or(false, |x| {
                     x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
                 });
-                ctl = aux!(snode, Some(suffix), spb, ln, Connector::NIL);
+                ctl = aux!(snode, Some(suffix), spb, ln, Connector::NIL, WrapperOptions::None);
                 // ^ condition
 
                 snode = rev_iter.next().unwrap();
@@ -367,7 +384,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                     x.wrapper.metavar.ismeta() || (x.is_dots && dots_has_mv(&x))
                 });
 
-                let truebranch = aux!(snode, Some(ctl), spb, ln, Connector::CEX);
+                let truebranch = aux!(snode, Some(ctl), spb, ln, Connector::CEX, WrapperOptions::None);
 
                 snode = rev_iter.next().unwrap();
                 spb = rev_iter.peek().map_or(false, |x| {
@@ -390,9 +407,36 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 ctl
             };
 
-            get_kind_pred(ifexprctl, skind, prev_is_mvar)
+            get_kind_pred(ifexprctl, parent_kinds, prev_is_mvar)
+        } else if snode.has_kind(&SyntaxKind::BIN_EXPR) {
+            let parent_kinds = snode.kinds();
+            let mut rev_iter = snode.children.iter().rev().peekable();
+            let mut snode = rev_iter.next().unwrap();
+            let prev_node = rev_iter.peek().unwrap();
+
+            let mut spb =
+                prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
+            let mut ctl = aux!(snode, attach_end, spb, ln, connector, WrapperOptions::None);
+
+            snode = rev_iter.next().unwrap();
+            spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
+            ctl = aux!(
+                snode,
+                Some(ctl),
+                spb,
+                ln,
+                Connector::CAX,
+                WrapperOptions::NoParenMvar
+            );
+            //So that '<' or '>' are not classified as a paren
+
+            snode = rev_iter.next().unwrap();
+            spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
+            ctl = aux!(snode, Some(ctl), spb, ln);
+
+            get_kind_pred(ctl, parent_kinds, prev_is_mvar)
         } else {
-            let skind = snode.kinds();
+            let parent_kinds = snode.kinds();
             let mut rev_iter = snode.children.iter().rev().peekable();
             let mut snode = rev_iter.next().unwrap();
             let prev_node = rev_iter.peek().unwrap();
@@ -403,7 +447,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
             let mut spb =
                 prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
-            let mut ctl = aux!(snode, attach_end, spb, ln, connector);
+            let mut ctl = aux!(snode, attach_end, spb, ln, connector, WrapperOptions::None);
             // let mut spb: bool;
 
             while rev_iter.len() != 0 {
@@ -414,10 +458,11 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
                 spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
                 ctl = aux!(snode, Some(ctl), spb, ln);
             }
-            get_kind_pred(ctl, skind, prev_is_mvar)
+            get_kind_pred(ctl, parent_kinds, prev_is_mvar)
         }
     }
 
+    // snode.print_tree();
     let ctl = aux!(snode, None, false, &mut 0);
     match *ctl {
         CTL::And(_, _, b) => match *b {

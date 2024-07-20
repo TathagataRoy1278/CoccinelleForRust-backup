@@ -109,12 +109,21 @@ struct NodeInfo {
 pub type Rflow<'a> = Graph<Node<'a>>;
 
 fn make_node<'a>(paren: Option<usize>, label: usize, rnode: &'a Rnode) -> Node<'a> {
-    return Node::RnodeW(NodeWrap { rnode: rnode, info: NodeInfo::new(paren, label) });
+    return Node::RnodeW(NodeWrap {
+        rnode: rnode,
+        info: NodeInfo::new(paren, label),
+    });
 }
 
 impl NodeInfo {
     pub fn new(paren: Option<usize>, labels: usize) -> NodeInfo {
-        return NodeInfo { paren: paren, labels, bclabels: vec![], is_loop: false, is_fake: false };
+        return NodeInfo {
+            paren: paren,
+            labels,
+            bclabels: vec![],
+            is_loop: false,
+            is_fake: false,
+        };
     }
 }
 
@@ -135,6 +144,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
     fn make_graph<'b, 'a: 'b>(
         prev_inds: &[NodeIndex],
         graph: &'b mut Graph<Node<'a>>,
+        parent_kind: &Vec<SyntaxKind>,
         rnodes: &'a Vec<Rnode>,
         label: usize,
         splits: &[usize], //the branch is split into two at each
@@ -156,20 +166,21 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
         let mut rnodes = rnodes.iter().peekable();
         let mut ends = vec![]; //has the last nodes which need to be linked to the next ones
         let mut ctr: usize = 0;
-        let mut nparen: usize;
+        let mut next_paren: usize;
 
         while rnodes.peek().is_some() {
             let rnode = match rnodes.next() {
                 Some(rnode) => rnode,
                 None => break,
             };
-            nparen = paren + ctr + 1;
+            next_paren = paren + ctr + 1;
 
             //Setting ParenVals
             let lkind = rnode.kinds().last().unwrap();
-            let node = if L_BROS.contains(lkind) {
+            let node = if L_BROS.contains(lkind) && !parent_kind.ends_with(&[SyntaxKind::BIN_EXPR]) {
+                // to avoid classifying lesser than expressions as a paren
                 make_node(Some(paren), label, rnode)
-            } else if R_BROS.contains(lkind) {
+            } else if R_BROS.contains(lkind) && !parent_kind.ends_with(&[SyntaxKind::BIN_EXPR]) {
                 make_node(Some(paren), label, rnode)
             } else {
                 //Node created and added to graph
@@ -206,19 +217,24 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                     let (children, hasattr) = rem_attr(rnode.children.as_slice());
                     let hasattr: usize = if hasattr { 1 } else { 0 };
                     match children {
-                        [ifkw, _cond, _thenn] if ifkw.has_kind(&Tag::IF_KW) => {
-                            make_graph(&[ind], graph, &rnode.children, label, &[], nparen)
-                        }
-                        [ifkw, _cond, _thenn, _elsekw, _elsebr] if ifkw.has_kind(&Tag::IF_KW) => {
-                            make_graph(
-                                &[ind],
-                                graph,
-                                &rnode.children,
-                                label,
-                                &[hasattr + 2],
-                                nparen,
-                            )
-                        }
+                        [ifkw, _cond, _thenn] if ifkw.has_kind(&Tag::IF_KW) => make_graph(
+                            &[ind],
+                            graph,
+                            rnode.kinds(),
+                            &rnode.children,
+                            label,
+                            &[],
+                            next_paren,
+                        ),
+                        [ifkw, _cond, _thenn, _elsekw, _elsebr] if ifkw.has_kind(&Tag::IF_KW) => make_graph(
+                            &[ind],
+                            graph,
+                            rnode.kinds(),
+                            &rnode.children,
+                            label,
+                            &[hasattr + 2],
+                            next_paren,
+                        ),
                         _ => {
                             panic!("Pattern does not exist")
                         }
@@ -226,7 +242,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
                 }
                 Tag::STMT_LIST => {
                     let children = &rnode.children;
-                    let (is, ps) = make_graph(&[ind], graph, children, label, &[], nparen);
+                    let (is, ps) = make_graph(&[ind], graph, rnode.kinds(), children, label, &[], next_paren);
 
                     assert_eq!(is.len(), 1); //the last node is the }
                     let rc = is.last().unwrap();
@@ -239,7 +255,15 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
 
                     (is, ps)
                 }
-                _ => make_graph(&[ind], graph, &rnode.children, label, &[], nparen),
+                _ => make_graph(
+                    &[ind],
+                    graph,
+                    rnode.kinds(),
+                    &rnode.children,
+                    label,
+                    &[],
+                    next_paren,
+                ),
             };
             psibs = pindst;
 
@@ -277,7 +301,7 @@ pub fn ast_to_flow<'a>(rnodes: &'a Vec<Rnode>) -> Graph<Node<'a>> {
     let mut graph: Graph<Node<'a>> = Graph::new();
     let f = graph.add_node(Node::StartNode);
 
-    let (e, _) = make_graph(&[f], &mut graph, rnodes, 0, &[], 0);
+    let (e, _) = make_graph(&[f], &mut graph, &vec![], rnodes, 0, &[], 0);
 
     //Make end dummy node loop
     let ind = graph.add_node(Node::EndNode);

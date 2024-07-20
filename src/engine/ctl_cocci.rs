@@ -7,8 +7,6 @@ use std::rc::Rc;
 use itertools::Itertools;
 use ra_parser::SyntaxKind;
 
-use crate::commons::info::L_BROS;
-use crate::commons::info::R_BROS;
 use crate::commons::ograph_extended::EdgeType;
 use crate::commons::ograph_extended::{self, NodeIndex};
 use crate::ctl::ctl_ast::{GenericCtl, GenericSubst, Modif};
@@ -351,10 +349,10 @@ fn labels_for_ctl<'a>() -> fn(
                     let nodew = node.data();
                     let tet = if *pim { EdgeType::PrevSibling } else { EdgeType::Default };
 
-                    //rnode can be unwrapped because not dummy
-                    //kinds always has atleast one element so it can be unwrapped
-                    let kind = nodew.rnode().unwrap().kinds().last().unwrap();
-                    if L_BROS.contains(kind) || R_BROS.contains(kind) {
+                    // rnode can be unwrapped because not dummy
+                    // kinds always has atleast one element so it can be unwrapped
+                    // let kind = nodew.rnode().unwrap().kinds().last().unwrap();
+                    if nodew.paren_val().unwrap().is_some() {
                         let pval: BoundValue =
                             BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
                         let sub = vec![Rc::new(GenericSubst::Subst(mvar.clone(), pval))];
