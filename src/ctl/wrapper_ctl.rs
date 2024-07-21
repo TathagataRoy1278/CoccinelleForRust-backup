@@ -435,7 +435,32 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
             ctl = aux!(snode, Some(ctl), spb, ln);
 
             get_kind_pred(ctl, parent_kinds, prev_is_mvar)
-        } else {
+        } else if snode.has_kind(&SyntaxKind::TOKEN_TREE) {
+            let parent_kinds = snode.kinds();
+            let mut rev_iter = snode.children.iter().rev().peekable();
+            let mut snode = rev_iter.next().unwrap();
+            let prev_node = rev_iter.peek().unwrap();
+
+            //Except at the top and bottom of the file
+            //All comments are preceded and succeeded by other nodes
+            //on the same level. I know it sounds weird.
+
+            let mut spb =
+                prev_node.wrapper.metavar.ismeta() || (prev_node.is_dots && dots_has_mv(&prev_node));
+            let mut ctl = aux!(snode, attach_end, spb, ln, connector, WrapperOptions::NoParenMvar);
+            // let mut spb: bool;
+
+            while rev_iter.len() != 0 {
+                // let p = CTL::AX(Direction::Forward, Strict::Strict, ctl);
+                // ctl = Box::new(CTL::And(Strict::Strict, aux(snode), Box::new(p)));
+
+                snode = rev_iter.next().unwrap();
+                spb = rev_iter.peek().map_or(false, |x| x.wrapper.metavar.ismeta());
+                ctl = aux!(snode, Some(ctl), spb, ln, Connector::CAX, WrapperOptions::NoParenMvar);
+            }
+            get_kind_pred(ctl, parent_kinds, prev_is_mvar)
+        } 
+        else {
             let parent_kinds = snode.kinds();
             let mut rev_iter = snode.children.iter().rev().peekable();
             let mut snode = rev_iter.next().unwrap();

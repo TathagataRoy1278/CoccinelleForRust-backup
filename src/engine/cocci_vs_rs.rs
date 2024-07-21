@@ -31,14 +31,21 @@ pub struct MetavarBinding {
 impl<'a> MetavarBinding {
     pub fn new(rname: String, varname: String, rnode: Rnode) -> MetavarBinding {
         return MetavarBinding {
-            metavarinfo: MetavarName { rulename: rname, varname: varname },
+            metavarinfo: MetavarName {
+                rulename: rname,
+                varname: varname,
+            },
             rnode: Rc::new(rnode),
             neg: false,
         };
     }
 
     pub fn from_subs(mvar: MetavarName, rnode: Rc<Rnode>, neg: bool) -> MetavarBinding {
-        return MetavarBinding { metavarinfo: mvar, rnode: rnode, neg };
+        return MetavarBinding {
+            metavarinfo: mvar,
+            rnode: rnode,
+            neg,
+        };
     }
 }
 
@@ -101,7 +108,10 @@ impl<'a> Environment {
         Environment {
             failed: false,
             bindings: vec![],
-            modifiers: Modifiers { minuses: vec![], pluses: vec![] },
+            modifiers: Modifiers {
+                minuses: vec![],
+                pluses: vec![],
+            },
         }
     }
 
@@ -109,7 +119,10 @@ impl<'a> Environment {
         Environment {
             failed: true,
             bindings: vec![],
-            modifiers: Modifiers { minuses: vec![], pluses: vec![] },
+            modifiers: Modifiers {
+                minuses: vec![],
+                pluses: vec![],
+            },
         }
     }
 
@@ -117,7 +130,10 @@ impl<'a> Environment {
         Environment {
             failed: false,
             bindings: self.bindings.clone(),
-            modifiers: Modifiers { minuses: vec![], pluses: vec![] },
+            modifiers: Modifiers {
+                minuses: vec![],
+                pluses: vec![],
+            },
         }
     }
 
@@ -140,10 +156,14 @@ pub fn addplustoenv(a: &Snode, b: &Rnode, env: &mut Environment) {
     match &a.wrapper.mcodekind {
         Mcodekind::Context(avec, bvec) => {
             if avec.len() != 0 {
-                env.modifiers.pluses.push((b.wrapper.info.charstart, true, avec.clone()));
+                env.modifiers
+                    .pluses
+                    .push((b.wrapper.info.charstart, true, avec.clone()));
             }
             if bvec.len() != 0 {
-                env.modifiers.pluses.push((b.wrapper.info.charend, false, bvec.clone()));
+                env.modifiers
+                    .pluses
+                    .push((b.wrapper.info.charend, false, bvec.clone()));
             }
         }
         Mcodekind::Minus(pluses) => {
@@ -155,7 +175,9 @@ pub fn addplustoenv(a: &Snode, b: &Rnode, env: &mut Environment) {
                 //         .iter()
                 //         .fold(String::new(), |mut acc, next| {acc.push_str(&next.getstring()); acc})
                 // );
-                env.modifiers.pluses.push((b.wrapper.info.charstart, true, pluses.clone()));
+                env.modifiers
+                    .pluses
+                    .push((b.wrapper.info.charstart, true, pluses.clone()));
             }
         }
         _ => {}
@@ -164,10 +186,14 @@ pub fn addplustoenv(a: &Snode, b: &Rnode, env: &mut Environment) {
 
 fn _addexplustoenv(b: &Rnode, pluses: Pluses, env: &mut Environment) {
     if pluses.0.len() > 0 {
-        env.modifiers.pluses.push((b.wrapper.info.charstart, true, pluses.0));
+        env.modifiers
+            .pluses
+            .push((b.wrapper.info.charstart, true, pluses.0));
     }
     if pluses.1.len() > 0 {
-        env.modifiers.pluses.push((b.wrapper.info.charend, false, pluses.1));
+        env.modifiers
+            .pluses
+            .push((b.wrapper.info.charend, false, pluses.1));
     }
 }
 
@@ -226,9 +252,21 @@ impl<'a, 'b> Looper {
                     //println!("{:?}========{}", node2.kind(), node2.astnode.to_string());
 
                     if node1.totoken() != node2.totoken() {
+                        // eprintln!("FAILED==== {}:{:?} {}:{:?}",
+                        //     node1.totoken(),
+                        //     node1.kinds(),
+                        //     node2.totoken(),
+                        //     node2.kinds());
                         //basically checks for tokens
                         return MetavarMatch::Fail;
                     } else {
+                        // eprintln!(
+                        //     "mcts - {}:{:?} {}:{:?}",
+                        //     node1.totoken(),
+                        //     node1.kinds(),
+                        //     node2.totoken(),
+                        //     node2.kinds()
+                        // );
                         return MetavarMatch::TokenMatch;
                     }
                 }
@@ -329,12 +367,8 @@ impl<'a, 'b> Looper {
             //(a | b) is converted into (a | (not a) and b)
 
             for prevdisj in &disjs[0..din] {
-                let penv = self.matchnodes(
-                    &prevdisj.iter().collect_vec(),
-                    node2,
-                    inheritedenv.clone(),
-                    false,
-                );
+                let penv =
+                    self.matchnodes(&prevdisj.iter().collect_vec(), node2, inheritedenv.clone(), false);
                 if !penv.failed {
                     continue 'outer;
                 }
@@ -398,11 +432,7 @@ pub fn visitrnode(
     return environments;
 }
 
-pub fn match_nodes(
-    nodea: &Snode,
-    nodeb: &Rnode,
-    inherited_bindings: &Vec<MetavarBinding>,
-) -> Environment {
+pub fn match_nodes(nodea: &Snode, nodeb: &Rnode, inherited_bindings: &Vec<MetavarBinding>) -> Environment {
     let looper = Looper::new(tokenf);
     let mut ienv = Environment::new();
     ienv.addbindings(&inherited_bindings.iter().collect_vec());

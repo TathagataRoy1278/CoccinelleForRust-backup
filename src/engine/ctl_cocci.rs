@@ -352,9 +352,9 @@ fn labels_for_ctl<'a>() -> fn(
                     // rnode can be unwrapped because not dummy
                     // kinds always has atleast one element so it can be unwrapped
                     // let kind = nodew.rnode().unwrap().kinds().last().unwrap();
-                    if nodew.paren_val().unwrap().is_some() {
+                    if nodew.paren_val().is_some() {
                         let pval: BoundValue =
-                            BoundValue::Paren(nodew.paren_val().unwrap().unwrap());
+                            BoundValue::Paren(nodew.paren_val().unwrap());
                         let sub = vec![Rc::new(GenericSubst::Subst(mvar.clone(), pval))];
                         acc.push_back(Rc::new((Node(nodei.clone(), tet), sub, vec![])));
                     };

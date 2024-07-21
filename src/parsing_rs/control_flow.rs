@@ -60,12 +60,12 @@ impl<'a> Node<'a> {
         }
     }
 
-    pub fn paren_val(&self) -> Option<Option<usize>> {
+    pub fn paren_val(&self) -> Option<usize> {
         match self {
             Node::StartNode | Node::EndNode | Node::AfterNode => {
                 return None;
             }
-            Node::RnodeW(nodew) => Some(nodew.info.paren),
+            Node::RnodeW(nodew) => Some(nodew.info.paren?),
         }
     }
 
