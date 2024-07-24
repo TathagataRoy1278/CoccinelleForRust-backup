@@ -354,6 +354,10 @@ impl<'a> Snode {
             Mcodekind::Star => todo!(),
         }
     }
+
+    pub fn change_kinds(&mut self, kinds: &[SyntaxKind]) {
+        self.kind = kinds.to_vec();
+    }
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]

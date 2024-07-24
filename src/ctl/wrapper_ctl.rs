@@ -436,6 +436,8 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
 
             get_kind_pred(ctl, parent_kinds, prev_is_mvar)
         } else if snode.has_kind(&SyntaxKind::TOKEN_TREE) {
+            // All matching inside a tokentree is verbose
+            // hence no brackets are matched
             let parent_kinds = snode.kinds();
             let mut rev_iter = snode.children.iter().rev().peekable();
             let mut snode = rev_iter.next().unwrap();
@@ -487,6 +489,7 @@ pub fn make_ctl_simple(snode: &Snode, _prev_is_mvar: bool) -> CTL {
         }
     }
 
+    // eprintln!("{}", snode.getstring());
     // snode.print_tree();
     let ctl = aux!(snode, None, false, &mut 0);
     match *ctl {

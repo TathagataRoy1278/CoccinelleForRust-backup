@@ -14,11 +14,13 @@ use core::panic;
 /// (+/-) code
 use std::{collections::HashSet, rc::Rc, vec};
 
+use ra_parser::SyntaxKind;
+
 use super::ast0::{wrap_root, Mcodekind, MetaVar, MetavarName, Snode};
 use crate::{
     commons::{
         info::{COCCI_DISJ_NAME, WILDCARD},
-        util::{self, attach_pluses_back, attach_pluses_front, collecttree, worksnode},
+        util::{self, attach_pluses_back, attach_pluses_front, collecttree, worksnode, },
     },
     ctl::{
         ctl_ast::{GenericCtl, GenericSubst},
@@ -101,6 +103,19 @@ pub struct Patch {
 }
 
 impl Patch {
+    // In many cases Dots need to be represented by an ident
+    // and not a comment, so this does that 
+    pub fn fix_dots(&mut self) {
+        let f = &mut |node: &mut Snode, _| {
+            if node.has_kind(&SyntaxKind::TUPLE_EXPR) && node.children[1].is_dots { //TupleKind always has atleast two children because of the Parens
+                node.change_kinds(&[SyntaxKind::PAREN_EXPR]);
+            }
+        };
+        
+        worksnode(&mut self.minus, (), f);
+        worksnode(&mut self.plus, (), f);
+    }
+
     fn setmetavars(&mut self, metavars: &Vec<MetaVar>) {
         fn setmetavars_aux(node: &mut Snode, metavars: &Vec<MetaVar>) {
             let mut freevars: Vec<MetaVar> = metavars.clone();
@@ -692,6 +707,9 @@ fn getpatch(
             }
         },
     };
+    p.fix_dots();
+    // p.plus.print_tree();
+    // p.minus.print_tree();
     p.setmetavars(metavars);
     p.setminus();
     get_body(&mut p.minus);
@@ -751,7 +769,8 @@ fn buildrule(
 
     plusbuf.push_str("}");
     minusbuf.push_str("}");
-
+    // eprintln!("plusbuf - {}", plusbuf);
+    // eprintln!("minusbuf - {}", minusbuf);
     let currpatch = getpatch(&plusbuf, &minusbuf, lastruleline, &metavars, istype);
     let unusedmetavars = currpatch.getunusedmetavars(metavars.clone());
 
@@ -785,7 +804,7 @@ fn buildrule(
         ctl: ctl,
     };
     rule
-}
+}    
 
 /// Does nothing much as of now. Just appends lines inside the rules
 /// while preserving line numbers with new lines

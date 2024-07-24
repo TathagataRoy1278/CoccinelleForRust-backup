@@ -10,7 +10,7 @@ use std::vec;
 
 use super::ast0::{KeepBinding, MetaVar, Snode};
 use super::parse_cocci::Rule;
-use crate::commons::util::worktree_pure;
+use crate::commons::util::worksnode_pure;
 
 type Tag = SyntaxKind;
 type Name = String;
@@ -46,7 +46,7 @@ fn collect_refs(root: &Snode, add: &mut dyn FnMut(MetaVar)) {
             }
         }
     };
-    worktree_pure(&root, &mut work)
+    worksnode_pure(&root, &mut work)
 }
 
 fn collect_minus_refs_unitary_nonunitary(root: &mut Snode) -> (HashSet<MetaVar>, HashSet<MetaVar>) {
@@ -71,7 +71,7 @@ fn collect_plus_refs(mut root: &mut Snode) -> HashSet<MetaVar> {
         work_exp_list_list(&lplusses);
         work_exp_list_list(&rplusses);
     };
-    worktree_pure(&mut root, &mut work);
+    worksnode_pure(&mut root, &mut work);
     refs
 }
 

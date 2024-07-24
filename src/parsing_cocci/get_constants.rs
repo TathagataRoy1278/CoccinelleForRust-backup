@@ -22,7 +22,7 @@
 
 use super::parse_cocci::Dep;
 use super::parse_cocci::Rule;
-use crate::commons::util::worktree_pure;
+use crate::commons::util::worksnode_pure;
 use crate::interface::interface::CoccinelleForRust;
 use crate::parsing_cocci::ast0::Mcodekind;
 use crate::parsing_cocci::ast0::MetaVar;
@@ -521,7 +521,7 @@ fn all_context<'a>(rule: &'a Rule) -> bool {
         }
         _ => res = false,
     };
-    worktree_pure(&rule.patch.minus, &mut work);
+    worksnode_pure(&rule.patch.minus, &mut work);
     res
 }
 
