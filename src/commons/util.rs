@@ -234,7 +234,6 @@ pub fn isexpr(node1: &Snode) -> bool {
         | RECORD_EXPR
         | RECORD_EXPR_FIELD_LIST
         | RECORD_EXPR_FIELD
-        | BOX_EXPR
         | CALL_EXPR
         | INDEX_EXPR
         | METHOD_CALL_EXPR

@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::{Hash, Hasher};
 
+use crate::commons::info::EDITION;
 use crate::commons::util::collecttree;
 
 use super::visitor_ast0::work_node;
@@ -285,7 +286,6 @@ impl<'a> Snode {
             | RECORD_EXPR
             | RECORD_EXPR_FIELD_LIST
             | RECORD_EXPR_FIELD
-            | BOX_EXPR
             | CALL_EXPR
             | INDEX_EXPR
             | METHOD_CALL_EXPR
@@ -307,7 +307,7 @@ impl<'a> Snode {
     }
 
     pub fn is_keyword(&self) -> bool {
-        self.kinds().iter().any(|c| c.is_keyword())
+        self.kinds().iter().any(|c| c.is_keyword(EDITION))
     }
 
     pub fn getdisjs(&'a self) -> (Vec<&'a Snode>, Pluses) {
@@ -938,7 +938,7 @@ pub fn parsedisjs<'a>(_node: &mut Snode) {
 pub fn wrap_root(contents: &str) -> Result<Snode, String> {
     let lindex = LineIndex::new(contents);
 
-    let parse = SourceFile::parse(contents);
+    let parse = SourceFile::parse(contents, EDITION);
     let errors = parse.errors();
     let mut err_str = String::new();
 
@@ -969,7 +969,7 @@ pub fn wrap_root(contents: &str) -> Result<Snode, String> {
         return Err(err_str);
     }
 
-    let root = SourceFile::parse(contents).syntax_node();
+    let root = SourceFile::parse(contents, EDITION).syntax_node();
     let wrap_node = &|lindex: &LineIndex,
                       node: SyntaxElement,
                       modkind: Option<String>,

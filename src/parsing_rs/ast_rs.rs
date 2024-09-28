@@ -429,7 +429,6 @@ impl<'a> Rnode {
             | RECORD_EXPR
             | RECORD_EXPR_FIELD_LIST
             | RECORD_EXPR_FIELD
-            | BOX_EXPR
             | CALL_EXPR
             | INDEX_EXPR
             | METHOD_CALL_EXPR

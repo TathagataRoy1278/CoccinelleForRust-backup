@@ -5,7 +5,7 @@ use ra_parser::SyntaxKind;
 use ra_syntax::{SourceFile, SyntaxElement, SyntaxError, SyntaxNode};
 
 use crate::{
-    commons::info::ParseInfo,
+    commons::info::{ParseInfo, EDITION},
     parsing_cocci::{ast0::Snode, parse_cocci::processcocci},
     parsing_rs::visitor_ast::work_node,
 };
@@ -152,7 +152,7 @@ pub fn split_into_fns(rnode: Rnode) -> Rcode {
 pub fn processrs(contents: &str) -> Result<Rcode, String> {
     //TODO put this in ast_rs.rs
     let lindex = LineIndex::new(contents);
-    let parse = SourceFile::parse(contents);
+    let parse = SourceFile::parse(contents, EDITION);
 
     if contents.trim().is_empty() {
         let node = parse.syntax_node();
@@ -182,7 +182,7 @@ pub fn processrs(contents: &str) -> Result<Rcode, String> {
             ));
         }
         */
-        return Err(pretty_print_errors(errors, contents, &lindex));
+        return Err(pretty_print_errors(&errors, contents, &lindex));
     }
     let root = parse.syntax_node();
 

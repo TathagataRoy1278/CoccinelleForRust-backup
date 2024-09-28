@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
+use ra_ide::Edition;
 use ra_parser::SyntaxKind;
 
 #[derive(Clone, PartialEq)]
@@ -114,3 +115,5 @@ pub const L_BROS: [SyntaxKind; 4] =
 
 pub const R_BROS: [SyntaxKind; 4] =
     [SyntaxKind::R_BRACK, SyntaxKind::R_ANGLE, SyntaxKind::R_CURLY, SyntaxKind::R_PAREN];
+
+pub const EDITION: Edition = Edition::Edition2024;
