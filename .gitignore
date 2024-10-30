@@ -9,6 +9,7 @@
 
 /talks/*
 !/talks/*.tex
+!/talks/*.pdf
 
 .vscode/
 .idea/
