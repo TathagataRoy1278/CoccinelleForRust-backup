@@ -21,7 +21,6 @@ use std::io::prelude::*;
 
 use super::ctl_ast::{GenericCtl, GenericSubst, GenericWitnessTree, GenericWitnessTreeList, Strict};
 
-
 static P_NEW_INFO_OPT: bool = true;
 static P_SATLEBEL_MEMO_OPT: bool = true;
 static P_REQUIRED_ENV_OPT: bool = true;
@@ -42,8 +41,7 @@ impl FlagCtl {
     }
 }
 
-pub type Substitution<Mvar, Value> =
-    Rc<ctl_ast::GenericSubst<Mvar, Value>>;
+pub type Substitution<Mvar, Value> = Rc<ctl_ast::GenericSubst<Mvar, Value>>;
 pub type SubstitutionList<S: Subs> = Vec<Substitution<S::Mvar, S::Value>>;
 pub type GWitness<State, Anno, Value> = ctl_ast::GenericWitnessTree<State, Anno, Value>;
 pub type CTL<S: Subs, P: Pred> = Vec<GenericCtl<P::ty, S::Mvar, Vec<String>>>;
@@ -1025,9 +1023,10 @@ where
                     }
                 };
 
-                Self::ff(&subsumes, trips1, trips2.iter())
+                Self::tu_first_loop(&subsumes, trips1, trips2.iter())
             }
         } else {
+            // println!("test");
             Self::union_byll(trips1, trips2.clone())
         }
     }
@@ -1640,11 +1639,13 @@ where
             Auok::Auok(y.clone())
         } else {
             let pre = Self::pre_forall(dir, m, new_info.clone(), &y, reqst);
+            // println!("here {}", pre.len());
             match Self::triples_conj(s1, &pre) {
                 first if first.is_empty() => Auok::Auok(y.clone()),
                 first => {
-                    // eprintln!("s1 - {}, pre - {}", s1.len(), pre.len());
+                    // eprintln!("first - {}, pre - {}, y - {}", first.len(), pre.len(), y.len());
                     let res = Self::triples_union(first.clone(), y);
+                    // println!("out {}", res.len());
                     // let a = y.iter().collect_vec();
                     // let new_info = setdiffll(&res, &y);
                     let new_info = first;
