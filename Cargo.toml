@@ -2,8 +2,13 @@
 name = "coccinelleforrust"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[build-dependencies] # <-- We added this and everything after!
+lalrpop = "0.22.0"
 
 [dependencies]
 ra_syntax = { version = "0.0.236", package="ra_ap_syntax" }
@@ -27,6 +32,8 @@ log = "0.4.19"
 env_logger = "0.10.0"
 rayon = "1.7"
 tempfile = "3.8.1"
+lalrpop = "0.22.0"
+lalrpop-util = { version = "0.21.0", features = ["lexer", "unicode"] }
 
 [dependencies.lsp-types] 
 version = "=0.94.0" 

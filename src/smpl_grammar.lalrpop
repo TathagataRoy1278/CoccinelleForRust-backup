@@ -1,0 +1,33 @@
+
+
+grammar;
+
+// type SpatchType = (&'input str, Vec<usize>);
+
+pub SPatch: SpatchType = {
+    Rule,
+    SPatch, Rule
+}
+
+Rule: RuleType {
+    "@" <r=RuleName> "@" <h=Header> "@@" <d=Disj> => (r, h, d)
+}
+
+RuleName: RuleNameType {
+    // TODO: Add depends
+    <rname=["a-zA-Z_"][("a-zA-Z0-9_")*]> => rname
+}
+
+Header {
+    "" => "",
+    Metavar_Decl
+}
+
+MetavarDecl {
+    <t=MetavarType> <def=MetavarDef> ";" => vec![make_metavar(t, def)]
+    MetavarDecl MetavarType MetavarDef ";" => add_metavars(<>)
+}
+
+Disj {
+    
+} 
