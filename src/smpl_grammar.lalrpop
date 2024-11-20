@@ -14,7 +14,7 @@ Ident = {
 }
 
 Rule: RuleType<'input> = {
-    "@" <r:RuleName> "@" <h:Header> "@@" <d:Disj> => (r, h, d)
+    "@" <r:RuleName> "@" <h:Header> "@@" <d:CM> => (r, h, d)
 }
 
 RuleName: &'input str = {
@@ -43,51 +43,35 @@ MetavarDef: Vec<&'input str> = {
     <mut defs:MetavarDef> "," <ident:Ident> => { defs.push(ident); defs }
 }
 
-DisjBranches: DisjElems = {
-    <d1: Disj> "|" <d2:Disj> => vec![d1, d2],
-    <mut d:DisjBranches> "|" <m:Disj> => {d.push(m); d}
+DisjBranches: Vec<DisjElems> = {
+    <d1: CM> "|" <d2:CM> => vec![DisjElems::DisjBranches(d1), DisjElems::DisjBranches(d2)],
+    <mut d:DisjBranches> "|" <m:CM> => {d.push(DisjElems::DisjBranches(m)); d}
 }
 
-OnlyDisj: Vec<DisjElems> = {
-    "" => vec![],
-    Disj => vec![<>],
-    <mut od:OnlyDisj> <d: Disj> => {
+Disji: DisjElems = {
+    "(" <db:DisjBranches> ")" => DisjElems::DisjBranches(db)
+}
+
+OnlyDisjs: Vec<DisjElems> = {
+
+    Disji => vec![<>],
+    <mut od:OnlyDisjs> <d: Disji> => {
         od.push(d);
         od
     }
 }
 
 MOrDisj: Vec<DisjElems> = {
-    OnlyDisj => <>,//not done
-    <m:Mod> <mut od:OnlyDisj> => {od.insert(0, m); od} 
+    //OnlyDisjs => <>,//not done
+    //"" => vec![],
+    <m:Mods> <mut od:OnlyDisjs> => {od.insert(0, DisjElems::Mod(m)); od} 
 }
 
-Disj: Vec<DisjElems> = {
-    "" => vec![DisjElems((String::new(), vec![]))],
-    Disj1 => vec![DisjElems::DisjBranches(<>)],
-    <m:Mods> <d1:Disj1> <t:Disj> => { let tmp = vec![DisjElems::Mod(m), d1]; tmp.extend(t); tmp },
-    <mut t:Disj> <d1:Disj1> <m:Mods> => { t.push(d1); t.push(DisjElems::Mod(m); t )},
-    <mut t1:Disj> <d1:Disj1> <m:Mods> <d2:Disj1> <t2:Disj> => {
-        t1.push(d1);
-        t1.push(DisjElems::Mod(m));
-        t1.push(d2);
-        t1.extend(t2);
-        t1
-    }
-} 
-
-Disj: Vec<DisjElems> = {
-    "" => vec![DisjElems((String::new(), vec![]))],
-    Disj1 => vec![DisjElems::DisjBranches(<>)],
-    <m:Mods> <d1:Disj1> <t:Disj> => { let tmp = vec![DisjElems::Mod(m), d1]; tmp.extend(t); tmp },
-    <mut t:Disj> <d1:Disj1> <m:Mods> => { t.push(d1); t.push(DisjElems::Mod(m); t )},
-    <mut t1:Disj> <d1:Disj1> <m:Mods> <d2:Disj1> <t2:Disj> => {
-        t1.push(d1);
-        t1.push(DisjElems::Mod(m));
-        t1.push(d2);
-        t1.extend(t2);
-        t1
-    }
+CM: Vec<DisjElems> = {
+    "" => vec![DisjElems::Mod((String::new(), vec![]))],
+    OnlyDisjs,
+    <mut d:CM> <m:MOrDisj> => {d.extend(m); d},
+    <mut d:CM> <mod_: Mods> => {d.push(DisjElems::Mod(mod_)); d}
 } 
 
 Mods: ModType = {
